@@ -1,0 +1,21 @@
+# Never commit game-derived or private data
+data/
+*.sqlite
+*.sqlite3
+*.db
+eqlog_*.txt
+*.log
+logs/
+# Secrets
+.git-credentials
+.env
+.env.*
+# Build/deps
+node_modules/
+dist/
+target/
+.turbo/
+coverage/
+# OS
+Thumbs.db
+.DS_Store

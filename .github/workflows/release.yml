@@ -1,0 +1,16 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  windows-artifact:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npm test
+      # M2: tauri build; code signing enabled when certificate is provisioned
+      # (see docs/ROADMAP.md; signing secrets: WINDOWS_CERT_*, never committed)
+      - run: echo "Release build pipeline lands with M2 (Tauri app)"

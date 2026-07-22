@@ -1,0 +1,14 @@
+{
+  "name": "eql-command-center",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Local-first, passive, read-only session tracker, combat-log parser, and analytics lab for EverQuest Legends",
+  "license": "MIT",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "lint": "echo 'lint: configured in M0-2'",
+    "typecheck": "echo 'typecheck: configured in M0-2'",
+    "test": "echo 'test: configured in M0-2'"
+  },
+  "engines": { "node": ">=22" }
+}

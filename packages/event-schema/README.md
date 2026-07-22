@@ -1,0 +1,1 @@
+# @eqlcc/event-schema
