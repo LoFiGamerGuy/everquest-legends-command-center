@@ -144,6 +144,43 @@ describe("read API — experiment breakdown", () => {
     expect(strict.winnerRefusedReason).toMatch(/minimum n/);
   });
 
+  it("refuses when the TOP-observed group lacks minN, never crowning a lower group", () => {
+    // berserker: highest dps (≈200) but only n=2; channeler: low dps (≈20) but n=8.
+    const s = new Scenario();
+    s.add(0, zoneEnter("The Northern Desert of Ro"));
+    fights(s, "berserker", 100, 2);
+    fights(s, "channeler", 10, 8);
+    const { db } = freshDb();
+    insertEvents(db, s.events);
+    rebuildProjections(db);
+
+    const r = getExperimentBreakdown(db, { dimension: "stance", metric: "dps" }, { experiment: { minN: 5 } });
+    expect(r.winner).toBeNull(); // channeler (n=8) must NOT be crowned
+    expect(r.winnerRefusedReason).toMatch(/top group 'berserker'/);
+    expect(r.winnerRefusedReason).toMatch(/below the minimum n/);
+  });
+
+  it("gives the same CI regardless of the encounters' insertion order", () => {
+    const opts = { experiment: { minN: 3, resamples: 200 } };
+    // Same experiment, two different DB build orders.
+    const s1 = new Scenario();
+    s1.add(0, zoneEnter("Zone"));
+    fights(s1, "berserker", 100, 4);
+    fights(s1, "channeler", 10, 4);
+    const s2 = new Scenario();
+    s2.add(0, zoneEnter("Zone"));
+    fights(s2, "channeler", 10, 4);
+    fights(s2, "berserker", 100, 4);
+
+    const dbs = [s1, s2].map((s) => {
+      const { db } = freshDb();
+      insertEvents(db, s.events);
+      rebuildProjections(db);
+      return getExperimentBreakdown(db, { dimension: "stance", metric: "dps" }, opts).groups;
+    });
+    expect(JSON.stringify(dbs[0])).toBe(JSON.stringify(dbs[1]));
+  });
+
   it("reports weapon dimension as unsupported in M1", () => {
     const db = breakdownDb();
     const w = getExperimentBreakdown(db, { dimension: "weapon", metric: "dps" });

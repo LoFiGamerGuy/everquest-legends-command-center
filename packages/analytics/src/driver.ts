@@ -75,6 +75,7 @@ export interface DriverResult {
  * never reprocess them; partial rebuild is not an M1 need).
  */
 export function rebuildProjections(db: Db, optsInput: ProjectionOptionsInput = {}): DriverResult {
+  assertSingleLogFile(db);
   const options = resolveOptions(optsInput);
   const projectors = buildProjectors();
   ensureStateRows(db, projectors);
@@ -96,6 +97,7 @@ export function rebuildProjections(db: Db, optsInput: ProjectionOptionsInput = {
 
 /** Incremental catch-up to head (idempotent at head). */
 export function updateProjections(db: Db, optsInput: ProjectionOptionsInput = {}): DriverResult {
+  assertSingleLogFile(db);
   const options = resolveOptions(optsInput);
   const projectors = buildProjectors();
   ensureStateRows(db, projectors);
@@ -183,15 +185,22 @@ function runPass(
         head = row.id;
         processed += 1;
       }
-      // Same-transaction watermark advance for the writes just made.
+      // Finalize (entities sync the resolver's kind/link state) and advance the
+      // watermark IN THE SAME TRANSACTION as this chunk's writes — the watermark
+      // is never committed without the entity/link rows it implies (a crash
+      // rolls back both together).
+      for (const rs of runtime) rs.projector.finalize?.(ctx);
       for (const rs of runtime) stmtState.run(rs.lastEventId, rs.projector.name);
     });
   }
 
-  // End-of-pass finalize (entities sync final resolver state) in one tx.
-  runInTx(db, () => {
-    for (const rs of runtime) rs.projector.finalize?.(ctx);
-  });
+  // No new events: still resync entities from the (replayed) resolver so a
+  // no-op update at head stays consistent. No watermark moves here.
+  if (rows.length === 0) {
+    runInTx(db, () => {
+      for (const rs of runtime) rs.projector.finalize?.(ctx);
+    });
+  }
 
   return { processed, headEventId: head };
 }
@@ -241,6 +250,26 @@ function getOwnerFile(db: Db): OwnerFile | null {
     .prepare("SELECT id, character_name AS character, server FROM log_files ORDER BY id LIMIT 1")
     .get() as OwnerFile | undefined;
   return row ?? null;
+}
+
+/**
+ * M1 scopes a projection pass to a SINGLE log file / owner: the driver builds one
+ * resolver + entity namespace from the first `log_files` row and every projector
+ * uses that owner. Events from a second log file would silently inherit the wrong
+ * owner/session namespace, so we reject that explicitly rather than mis-attribute
+ * (multi-owner passes with per-log-file context are a v2 concern; run one DB per
+ * character, as the orchestrator does).
+ */
+function assertSingleLogFile(db: Db): void {
+  const row = db.prepare("SELECT COUNT(DISTINCT log_file_id) AS n FROM events").get() as {
+    n: number;
+  };
+  if (row.n > 1) {
+    throw new Error(
+      `@eqlcc/analytics: events span ${row.n} log files, but M1 projections are single-owner ` +
+        `(one log file per database). Run a separate projection DB per character.`,
+    );
+  }
 }
 
 function makeContext(db: Db, options: ProjectionOptions, ownerFile: OwnerFile | null): PassContext {

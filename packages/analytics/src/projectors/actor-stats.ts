@@ -49,11 +49,18 @@ export function createActorStatsProjector(): Projector {
     const enc = ctx.db
       .prepare("SELECT started_ts FROM encounters WHERE id = ?")
       .get(encounterId) as { started_ts: number } | undefined;
-    const startedTs = enc?.started_ts ?? 0;
+    // The encounter's opener is the lowest-id event attached to it. Bound the
+    // stance/invocation lookup by that event id — i.e. by (log_file_id, seq)
+    // order, NOT ts alone (ordering amendment) — so a same-second stance change
+    // with a LATER seq than the opener is not mistaken for the opener's stance.
+    const opener = ctx.db
+      .prepare("SELECT MIN(id) AS id FROM events WHERE encounter_id = ?")
+      .get(encounterId) as { id: number | null };
+    const openerId = opener.id ?? 0;
     const state: StartState = {
-      startedTs,
-      stance: latestStringField(ctx, "stance_change", "stance", logFileId, startedTs),
-      invocation: latestStringField(ctx, "invocation_change", "invocation", logFileId, startedTs),
+      startedTs: enc?.started_ts ?? 0,
+      stance: latestStringField(ctx, "stance_change", "stance", logFileId, openerId),
+      invocation: latestStringField(ctx, "invocation_change", "invocation", logFileId, openerId),
     };
     startCache.set(encounterId, state);
     return state;
@@ -116,21 +123,25 @@ export function createActorStatsProjector(): Projector {
   };
 }
 
-/** The most recent value of a string field from `type` events at/before `ts`. */
+/**
+ * The most recent value of a string field from `type` events at or before the
+ * opener event, ordered by id (= (log_file_id, seq), the canonical order — never
+ * ts alone).
+ */
 function latestStringField(
   ctx: PassContext,
   type: string,
   field: string,
   logFileId: number,
-  ts: number,
+  openerId: number,
 ): string | null {
   const row = ctx.db
     .prepare(
       `SELECT payload FROM events
-       WHERE type = ? AND log_file_id = ? AND ts <= ?
+       WHERE type = ? AND log_file_id = ? AND id <= ?
        ORDER BY id DESC LIMIT 1`,
     )
-    .get(type, logFileId, ts) as { payload: string } | undefined;
+    .get(type, logFileId, openerId) as { payload: string } | undefined;
   if (row === undefined) return null;
   const parsed = JSON.parse(row.payload) as Record<string, unknown>;
   const value = parsed[field];

@@ -11,6 +11,10 @@
 export { rebuildProjections, updateProjections } from "./driver.js";
 export type { DriverResult } from "./driver.js";
 
+// Optional terminal encounter close for a completed log (spec §5/§8).
+export { finalizeEncounters } from "./finalize-encounters.js";
+export type { FinalizeEncountersResult } from "./finalize-encounters.js";
+
 // Tunable derivation constants (spec §3–§8).
 export {
   DEFAULT_PROJECTION_OPTIONS,

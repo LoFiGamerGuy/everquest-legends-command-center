@@ -64,7 +64,8 @@ export function getExperimentBreakdown(
               (SELECT MIN(active_stance) FROM encounter_actor_stats WHERE encounter_id = en.id) AS stance,
               (SELECT MIN(active_invocation) FROM encounter_actor_stats WHERE encounter_id = en.id) AS invocation,
               COALESCE((SELECT SUM(percent_milli) FROM xp_events WHERE attributed_encounter_id = en.id AND kind = 'normal'), 0) AS xp
-       FROM encounters en LEFT JOIN zones z ON z.id = en.zone_id`,
+       FROM encounters en LEFT JOIN zones z ON z.id = en.zone_id
+       ORDER BY en.id`,
     )
     .all() as EncounterMetricRow[];
 
@@ -79,9 +80,17 @@ export function getExperimentBreakdown(
     buckets.set(value, arr);
   }
 
-  const rng = mulberry32(options.seed);
+  // Seed the bootstrap RNG PER GROUP (from the fixed seed + the group value), so
+  // a group's CI depends only on its own data — never on map-iteration / row
+  // order — keeping the breakdown deterministic (a shared RNG stream would make
+  // CIs order-dependent).
   const groups: ExperimentGroup[] = [...buckets.entries()]
-    .map(([value, values]) => {
+    .map(([value, raw]) => {
+      // Sort the group's samples so the bootstrap depends only on the multiset,
+      // not on the encounters' insertion order → identical CI for the same input
+      // regardless of how the underlying DB was built.
+      const values = [...raw].sort((a, b) => a - b);
+      const rng = mulberry32(groupSeed(options.seed, value));
       const ci = bootstrapCI(values, options.resamples, options.ciPercent, rng);
       return { value, n: values.length, mean: mean(values), ciLow: ci.low, ciHigh: ci.high };
     })
@@ -129,12 +138,18 @@ function pickWinner(
   groups: ExperimentGroup[],
   minN: number,
 ): { winner: { value: string; mean: number } | null; reason: string | null } {
-  const eligible = groups.filter((g) => g.n >= minN);
-  if (eligible.length === 0) {
-    return { winner: null, reason: `no group meets the minimum n (${minN})` };
+  // `groups` is sorted by mean desc: groups[0] is the TOP OBSERVED candidate.
+  // Refuse if IT lacks minimum n — never fall through to a lower-mean group that
+  // happens to have more samples (that would not be "refuse below minimum n").
+  const top = groups[0];
+  if (top === undefined) return { winner: null, reason: "no groups to compare" };
+  if (top.n < minN) {
+    return {
+      winner: null,
+      reason: `top group '${top.value}' has n=${top.n}, below the minimum n (${minN})`,
+    };
   }
-  const top = eligible[0] as ExperimentGroup;
-  const runnerUp = eligible[1];
+  const runnerUp = groups[1];
   if (runnerUp !== undefined && top.ciLow <= runnerUp.ciHigh) {
     return { winner: null, reason: "top groups' confidence intervals overlap" };
   }
@@ -177,6 +192,15 @@ function bootstrapCI(
 function percentile(sorted: number[], p: number): number {
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
   return sorted[idx] as number;
+}
+
+/** Fold a group value into the base seed (FNV-1a) → a stable per-group seed. */
+function groupSeed(seed: number, value: string): number {
+  let h = (seed ^ 0x811c9dc5) >>> 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = Math.imul(h ^ value.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return h >>> 0;
 }
 
 /** Deterministic 32-bit PRNG (mulberry32) — reproducible bootstrap. */

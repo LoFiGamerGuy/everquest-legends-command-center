@@ -65,12 +65,27 @@ export function createEntitiesProjector(): Projector {
                last_seen_ts = @lastSeen
          WHERE id = @id`,
       );
-      const clearLinks = db.prepare("DELETE FROM entity_links WHERE pet_entity_id = ?");
-      const insertLink = db.prepare(
+      // Deterministic UPSERT keyed on the table's UNIQUE(pet, owner, evidence) —
+      // never delete+reinsert, so entity_links.id is stable across passes.
+      const upsertLink = db.prepare(
         `INSERT INTO entity_links
            (pet_entity_id, owner_entity_id, evidence_type, confidence,
             first_ts, last_ts, observation_count, active)
-         VALUES (@pet, @owner, @evidence, @confidence, @firstTs, @lastTs, @count, @active)`,
+         VALUES (@pet, @owner, @evidence, @confidence, @firstTs, @lastTs, @count, 1)
+         ON CONFLICT(pet_entity_id, owner_entity_id, evidence_type) DO UPDATE SET
+           confidence = @confidence, first_ts = @firstTs, last_ts = @lastTs,
+           observation_count = @count, active = 1`,
+      );
+      // Deactivate any link rows for a pet that are not its current best link
+      // (or all of them when the pet has no active link) — kept for audit, never
+      // rolled up while inactive (DATA_MODEL §3).
+      const deactivateOthers = db.prepare(
+        `UPDATE entity_links SET active = 0
+         WHERE pet_entity_id = @pet
+           AND NOT (owner_entity_id = @owner AND evidence_type = @evidence)`,
+      );
+      const deactivateAll = db.prepare(
+        "UPDATE entity_links SET active = 0 WHERE pet_entity_id = @pet",
       );
 
       for (const rec of resolver.list()) {
@@ -87,9 +102,7 @@ export function createEntitiesProjector(): Projector {
           firstSeen: rec.firstSeenTs ?? null,
           lastSeen: rec.lastSeenTs ?? null,
         });
-        // Rewrite this pet's best link deterministically (idempotent).
-        clearLinks.run(id);
-        writeBestLink(rec, id, ctx, insertLink);
+        writeBestLink(rec, id, ctx, upsertLink, deactivateOthers, deactivateAll);
       }
     },
 
@@ -101,28 +114,34 @@ export function createEntitiesProjector(): Projector {
   };
 }
 
-type InsertLinkStmt = ReturnType<PassContext["db"]["prepare"]>;
+type LinkStmt = ReturnType<PassContext["db"]["prepare"]>;
 
 /**
- * Persist the resolver's single best pet→owner link for a record, when it holds
- * an active owner link. name_pattern-only pets never surface a link (the
- * resolver keeps `ownerLink` undefined for them), so nothing is written — a bare
- * name shape never becomes an owner fact (spec §2).
+ * Persist the resolver's single best pet→owner link for a record via UPSERT (id
+ * stable), and deactivate any stale/other link rows for that pet. name_pattern-
+ * only pets never surface a link (the resolver keeps `ownerLink` undefined), and
+ * a pet whose link is inactive (e.g. a user override reclassified it) has ALL its
+ * links deactivated — a bare name shape or a denied pet never becomes an owner
+ * fact (spec §2).
  */
 function writeBestLink(
   rec: EntityRecord,
   petId: number,
   ctx: PassContext,
-  insert: InsertLinkStmt,
+  upsert: LinkStmt,
+  deactivateOthers: LinkStmt,
+  deactivateAll: LinkStmt,
 ): void {
   const link = rec.ownerLink;
-  if (link === undefined || !link.active) return;
-  const ownerId = ctx.entities.peek(link.ownerId);
-  if (ownerId === undefined) return; // owner not observed in combat — no FK to reference
+  const ownerId = link === undefined ? undefined : ctx.entities.peek(link.ownerId);
+  if (link === undefined || !link.active || ownerId === undefined) {
+    deactivateAll.run({ pet: petId });
+    return;
+  }
   const tss = link.evidence.map((e) => e.ts).filter((t): t is number => t !== undefined);
   const firstTs = tss.length > 0 ? Math.min(...tss) : (rec.firstSeenTs ?? 0);
   const lastTs = tss.length > 0 ? Math.max(...tss) : (rec.lastSeenTs ?? firstTs);
-  insert.run({
+  upsert.run({
     pet: petId,
     owner: ownerId,
     evidence: link.evidenceType,
@@ -130,6 +149,6 @@ function writeBestLink(
     firstTs,
     lastTs,
     count: link.evidence.length,
-    active: link.active ? 1 : 0,
   });
+  deactivateOthers.run({ pet: petId, owner: ownerId, evidence: link.evidenceType });
 }

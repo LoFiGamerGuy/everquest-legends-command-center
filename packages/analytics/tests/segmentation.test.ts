@@ -95,4 +95,19 @@ describe("encounter segmentation", () => {
     expect(rows[0]!.active_stance).toBe("berserker");
     expect(rows[0]!.active_invocation).toBe("recovery");
   });
+
+  it("uses (log_file_id, seq) not ts for stance-at-start on a same-second change", () => {
+    // All at the same ts: stance A (seq2) → opener melee (seq3) → stance B (seq4).
+    // The opener stance is A; a ts-only lookup would wrongly pick B (same ts,
+    // later id). We bound by the opener event id, so A wins.
+    const s = new Scenario();
+    s.add(0, zoneEnter("The Northern Desert of Ro"));
+    s.add(0, stance("berserker")); // seq2, ts = T
+    s.add(0, melee("You", "a sand rat", 5)); // seq3, ts = T — opener
+    s.add(0, stance("channeler")); // seq4, ts = T — later seq, must NOT apply
+    s.add(0, melee("You", "a sand rat", 6)); // seq5, ts = T
+    const db = project(s);
+    const rows = snapshot(db).encounter_actor_stats as { active_stance: string | null }[];
+    expect(rows[0]!.active_stance).toBe("berserker");
+  });
 });
