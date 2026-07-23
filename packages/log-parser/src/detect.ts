@@ -83,6 +83,9 @@ export function detectDialect(
   const driftAlertRate = options.driftAlertRate ?? DRIFT_ALERT_RATE;
   const markerDetector = options.markerDetector ?? detectExplicitMarker;
 
+  // Intentional: measure every dialect's rate up front (cheap; single sample
+  // pass each) so `perDialectUnmatchedRate` is always populated for transparency,
+  // even when the explicit marker below short-circuits the selection.
   const perDialectUnmatchedRate: Record<DialectId, number> = {};
   for (const id of registry.ids()) {
     const dialect = registry.get(id);

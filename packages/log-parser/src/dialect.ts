@@ -80,7 +80,16 @@ function resolveRules(
 ): RecognizerRule[] {
   const byId = new Map<string, RecognizerRule>();
   for (const rule of base) byId.set(rule.ruleId, rule);
-  for (const rule of def.rules) byId.set(rule.ruleId, rule);
+  const declared = new Set<string>();
+  for (const rule of def.rules) {
+    // A base rule may be overridden once; two rules with the same id WITHIN this
+    // declaration is an authoring error (last-wins would silently drop one).
+    if (declared.has(rule.ruleId)) {
+      throw new Error(`dialect ${def.id}: duplicate ruleId in declaration: ${rule.ruleId}`);
+    }
+    declared.add(rule.ruleId);
+    byId.set(rule.ruleId, rule);
+  }
   return [...byId.values()];
 }
 

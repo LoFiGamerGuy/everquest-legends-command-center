@@ -17,8 +17,17 @@
 
 import type { DialectBaseline } from "./dialect.js";
 import type { RunStats } from "./benchmark.js";
-import type { UnknownShape } from "./unknown-stats.js";
 import { DRIFT_ALERT_RATE } from "./detect.js";
+
+/**
+ * A name-free unknown shape for the shareable DriftReport: only the normalized
+ * shape and its frequency. The raw `firstExample` (which may contain player
+ * names) is deliberately NOT carried here — it stays on the local UnknownStats.
+ */
+export interface AnonymizedShape {
+  shape: string;
+  count: number;
+}
 
 /** Relative drop in a family's recognized-line share that flags drift (§3b). */
 export const FAMILY_DROP_THRESHOLD = 0.5;
@@ -40,8 +49,8 @@ export interface DriftReport {
   overallUnmatchedFlag: boolean;
   /** (b) verified families whose share dropped past the threshold, worst first. */
   droppedFamilies: FamilyDrift[];
-  /** (c) top new unknown shapes by frequency (normalized + anonymized). */
-  newShapes: UnknownShape[];
+  /** (c) top new unknown shapes by frequency (normalized + anonymized, name-free). */
+  newShapes: AnonymizedShape[];
   /** True if any flag fired — the run needs triage (§5 launch playbook). */
   flagged: boolean;
 }
@@ -90,11 +99,13 @@ export function driftReport(
   }
   droppedFamilies.sort((a, b) => b.relativeDrop - a.relativeDrop);
 
-  // (c) New unknown shapes to promote to fixtures.
-  const newShapes =
+  // (c) New unknown shapes to promote to fixtures. Mapped to a name-free
+  // {shape, count} — the raw firstExample never enters the shareable report.
+  const source =
     options.topShapes === undefined
-      ? [...stats.unknownShapes]
+      ? stats.unknownShapes
       : stats.unknownShapes.slice(0, options.topShapes);
+  const newShapes: AnonymizedShape[] = source.map((s) => ({ shape: s.shape, count: s.count }));
 
   const overallUnmatchedFlag = stats.rate > driftAlertRate;
 

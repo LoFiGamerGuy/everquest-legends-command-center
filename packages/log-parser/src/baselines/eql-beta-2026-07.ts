@@ -16,12 +16,17 @@
  * frequency-representative capture of the private 434k-line corpus. So these
  * shares are the right *shape* for drift math (each verified family has a
  * nonzero expected share, and a family dropping to `raw_unknown` shows up as a
- * relative share drop) but are NOT the corpus's true family frequencies. At
- * launch, refresh `FAMILY_COUNTS` from the measured corpus/launch fixtures
- * before trusting absolute thresholds; the machinery and its defaults are
- * unaffected. `driftReport` compares *relative* share drops, which is robust to
- * this: a family disappearing drops from its baseline share toward zero
- * regardless of the absolute magnitude.
+ * relative share drop) but are NOT the corpus's true family frequencies.
+ *
+ * IMPORTANT — refresh before diffing real logs: because the fixture shares are
+ * NOT frequency-representative, running a real, frequency-representative clean
+ * corpus against THIS baseline will FALSE-POSITIVE many unchanged-but-rare
+ * families (a family the fixtures over-represent will look like it "dropped").
+ * The relative-share-drop signal is only reliable for a family that FULLY
+ * disappears (share -> 0). Before diffing launch logs, refresh `FAMILY_COUNTS`
+ * from the measured beta corpus (LAUNCH_DIALECT_READINESS.md §5 step 2) so the
+ * baseline is frequency-representative; the drift machinery and its default
+ * thresholds are unaffected by the refresh.
  */
 
 import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";

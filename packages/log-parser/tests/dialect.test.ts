@@ -125,6 +125,33 @@ describe("DialectRegistry extends/override (§1)", () => {
       }),
     ).toThrow(/duplicate frequencyRank/);
   });
+
+  it("rejects a duplicate ruleId WITHIN one declaration (not silently de-duped)", () => {
+    const registry = new DialectRegistry();
+    registry.register({ id: DIALECT_EQL_BETA_2026_07, rules: allRules() });
+    expect(() =>
+      registry.register({
+        id: "z",
+        extends: DIALECT_EQL_BETA_2026_07,
+        rules: [
+          regexRule({
+            ruleId: "synth-dup",
+            family: "synth",
+            frequencyRank: 100001,
+            regex: /^SYNTHDUPA$/,
+            build: () => ({ type: "system_message", kind: "a" }),
+          }),
+          regexRule({
+            ruleId: "synth-dup", // same id twice in one declaration
+            family: "synth",
+            frequencyRank: 100002,
+            regex: /^SYNTHDUPB$/,
+            build: () => ({ type: "system_message", kind: "b" }),
+          }),
+        ],
+      }),
+    ).toThrow(/duplicate ruleId in declaration/);
+  });
 });
 
 describe("createDefaultDialectRegistry (backward compatible, §1/§2.3)", () => {

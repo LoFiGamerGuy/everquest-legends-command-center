@@ -48,6 +48,10 @@ describe("driftReport (§3)", () => {
     // (c) the new unknown wording is surfaced, normalized + anonymized.
     expect(report.newShapes.length).toBeGreaterThan(0);
     expect(report.newShapes.some((s) => s.shape.includes("drifted"))).toBe(true);
+    // Name-free: report shapes carry ONLY {shape, count} — no raw firstExample.
+    for (const shape of report.newShapes) {
+      expect(Object.keys(shape).sort()).toEqual(["count", "shape"]);
+    }
 
     // (a) overall rate rose past the alert threshold, and the run is flagged.
     expect(report.overallUnmatchedFlag).toBe(true);
