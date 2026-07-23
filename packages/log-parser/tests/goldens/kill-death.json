@@ -1,0 +1,109 @@
+{
+  "fixture": "eql-beta-2026-07/kill-death.txt",
+  "events": [
+    {
+      "type": "kill",
+      "killer": "You",
+      "target": "a fragile pet",
+      "ts": 1783704029000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:20:29 2026] You have slain a fragile pet!",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "kill-you"
+    },
+    {
+      "type": "kill",
+      "killer": "Playerten",
+      "target": "A fire beetle",
+      "ts": 1783704357000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:25:57 2026] A fire beetle has been slain by Playerten!",
+      "byteOffset": 57,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "kill-other"
+    },
+    {
+      "type": "kill",
+      "killer": "Guard Stoutman",
+      "target": "A desert spiderling",
+      "ts": 1783704723000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 17:32:03 2026] A desert spiderling has been slain by Guard Stoutman!",
+      "byteOffset": 127,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "kill-other"
+    },
+    {
+      "type": "death",
+      "entity": "You",
+      "killer": "Sergeant Slate",
+      "ts": 1783708748000,
+      "seq": 4,
+      "raw": "[Fri Jul 10 18:39:08 2026] You have been slain by Sergeant Slate!",
+      "byteOffset": 208,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "death-you"
+    },
+    {
+      "type": "death",
+      "entity": "Playereleven",
+      "killer": null,
+      "ts": 1783714606000,
+      "seq": 5,
+      "raw": "[Fri Jul 10 20:16:46 2026] Playereleven died.",
+      "byteOffset": 274,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "death-bare"
+    },
+    {
+      "type": "death",
+      "entity": "A large skeleton",
+      "killer": null,
+      "ts": 1783874529000,
+      "seq": 6,
+      "raw": "[Sun Jul 12 16:42:09 2026] A large skeleton died.",
+      "byteOffset": 320,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "death-bare"
+    },
+    {
+      "type": "death",
+      "entity": "You",
+      "killer": null,
+      "ts": 1784066814000,
+      "seq": 7,
+      "raw": "[Tue Jul 14 22:06:54 2026] You died.",
+      "byteOffset": 370,
+      "lineNo": 7,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "death-bare"
+    },
+    {
+      "type": "death",
+      "entity": "An earth elemental",
+      "killer": null,
+      "ts": 1784143942000,
+      "seq": 8,
+      "raw": "[Wed Jul 15 19:32:22 2026] An earth elemental died.",
+      "byteOffset": 407,
+      "lineNo": 8,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "death-bare"
+    }
+  ]
+}

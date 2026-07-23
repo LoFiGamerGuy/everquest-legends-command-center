@@ -1,0 +1,41 @@
+{
+  "fixture": "eql-beta-2026-07/zone-enter.txt",
+  "events": [
+    {
+      "type": "zone_enter",
+      "zone": "EverQuest Legends Tutorial",
+      "ts": 1783703646000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:14:06 2026] You have entered EverQuest Legends Tutorial.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "zone-enter"
+    },
+    {
+      "type": "zone_enter",
+      "zone": "The Northern Desert of Ro",
+      "ts": 1783704339000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:25:39 2026] You have entered The Northern Desert of Ro.",
+      "byteOffset": 72,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "zone-enter"
+    },
+    {
+      "type": "zone_enter",
+      "zone": "New Sebilis Expedition",
+      "ts": 1783704108000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 17:21:48 2026] You have entered New Sebilis Expedition.",
+      "byteOffset": 143,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "zone-enter"
+    }
+  ]
+}

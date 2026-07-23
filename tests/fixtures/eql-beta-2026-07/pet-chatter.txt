@@ -1,0 +1,6 @@
+[Mon Jul 13 00:07:28 2026] Petone told you, 'Attacking a greater skeleton Master.'
+[Fri Jul 10 15:57:57 2026] Playerfour`s warder told you, 'Attacking a forest drakeling Master.'
+[Mon Jul 13 21:33:53 2026] Petone told you, 'I am unable to wake a hardened skeleton, Master.'
+[Mon Jul 13 21:39:42 2026] Taunting attackers as normal, Master.
+[Mon Jul 13 21:39:42 2026] Failed to taunt my target, Master.
+[Mon Jul 13 21:39:47 2026] Failed to capture a necro apprentice's attention, Master.

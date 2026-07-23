@@ -1,0 +1,31 @@
+{
+  "fixture": "eql-beta-2026-07/faction-change.txt",
+  "events": [
+    {
+      "type": "faction_change",
+      "faction": "New Sebilisian Expedition",
+      "delta": 100,
+      "ts": 1783704124000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:22:04 2026] Your faction standing with New Sebilisian Expedition has been adjusted by 100.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "faction-change"
+    },
+    {
+      "type": "faction_change",
+      "faction": "Befallen Inhabitants",
+      "delta": -2,
+      "ts": 1783709493000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 18:51:33 2026] Your faction standing with Befallen Inhabitants has been adjusted by -2.",
+      "byteOffset": 106,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "faction-change"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "fixture": "eql-beta-2026-07/dot-tick.txt",
+  "events": [
+    {
+      "type": "dot_tick",
+      "target": "A giant spider",
+      "amount": 16,
+      "spell": "Blood Siphon Strike",
+      "attacker": "You",
+      "ts": 1784008776000,
+      "seq": 1,
+      "raw": "[Tue Jul 14 05:59:36 2026] A giant spider has taken 16 damage from your Blood Siphon Strike.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "dot-your"
+    },
+    {
+      "type": "dot_tick",
+      "target": "You",
+      "amount": 1,
+      "spell": "Feeble Poison",
+      "attacker": "a dune spiderling",
+      "ts": 1783705125000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:38:45 2026] You have taken 1 damage from Feeble Poison by a dune spiderling.",
+      "byteOffset": 93,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "dot-you"
+    },
+    {
+      "type": "dot_tick",
+      "target": "Playersix",
+      "amount": 1,
+      "spell": "Disease Cloud",
+      "attacker": "a necro neophyte",
+      "ts": 1783709740000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 18:55:40 2026] Playersix has taken 1 damage from Disease Cloud by a necro neophyte.",
+      "byteOffset": 185,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "dot-other"
+    },
+    {
+      "type": "dot_tick",
+      "target": "Asaka L`Rei",
+      "amount": 8,
+      "spell": "Leech",
+      "attacker": "Playersix",
+      "ts": 1783709852000,
+      "seq": 4,
+      "raw": "[Fri Jul 10 18:57:32 2026] Asaka L`Rei has taken 8 damage from Leech by Playersix.",
+      "byteOffset": 281,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "dot-other"
+    },
+    {
+      "type": "dot_tick",
+      "target": "Playertwelve",
+      "amount": 28,
+      "spell": "Heat Blood",
+      "attacker": null,
+      "ts": 1783714293000,
+      "seq": 5,
+      "raw": "[Fri Jul 10 20:11:33 2026] Playertwelve has taken 28 damage by Heat Blood.",
+      "byteOffset": 364,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "dot-unknown-source"
+    }
+  ]
+}

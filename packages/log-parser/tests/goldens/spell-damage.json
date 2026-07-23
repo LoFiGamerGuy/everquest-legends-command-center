@@ -1,0 +1,75 @@
+{
+  "fixture": "eql-beta-2026-07/spell-damage.txt",
+  "events": [
+    {
+      "type": "spell_damage",
+      "attacker": "You",
+      "target": "a fragile pet",
+      "amount": 2,
+      "school": "magic",
+      "spell": "Lifetap",
+      "modifiers": [],
+      "ts": 1783704029000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:20:29 2026] You hit a fragile pet for 2 points of magic damage by Lifetap.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "spell-damage"
+    },
+    {
+      "type": "spell_damage",
+      "attacker": "You",
+      "target": "a rambunctious pet",
+      "amount": 4,
+      "school": "magic",
+      "spell": "Lifetap",
+      "modifiers": [],
+      "ts": 1783704037000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:20:37 2026] You hit a rambunctious pet for 4 points of magic damage by Lifetap.",
+      "byteOffset": 90,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "spell-damage"
+    },
+    {
+      "type": "spell_damage",
+      "attacker": "a dune spiderling",
+      "target": "you",
+      "amount": 3,
+      "school": "poison",
+      "spell": "Feeble Poison",
+      "modifiers": [],
+      "ts": 1783705124000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 17:38:44 2026] a dune spiderling hit you for 3 points of poison damage by Feeble Poison.",
+      "byteOffset": 185,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "spell-damage"
+    },
+    {
+      "type": "spell_damage",
+      "attacker": "Playerfive",
+      "target": "Footman of V`Zher",
+      "amount": 130,
+      "school": "fire",
+      "spell": "Flame Shock",
+      "modifiers": [
+        "Critical"
+      ],
+      "ts": 1783805279000,
+      "seq": 4,
+      "raw": "[Sat Jul 11 21:27:59 2026] Playerfive hit Footman of V`Zher for 130 points of fire damage by Flame Shock. (Critical)",
+      "byteOffset": 286,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "spell-damage"
+    }
+  ]
+}

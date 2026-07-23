@@ -1,0 +1,24 @@
+{
+  "name": "@eqlcc/log-parser",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pure-TS parser core for EQL Command Center: line normalization, timestamp slicing, dialect-versioned recognizers, and unknown-line diagnostics. Depends only on @eqlcc/event-schema; no Tauri, no DOM, no SQLite.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "bin": {
+    "eqlcc-parse": "./dist/src/cli.js"
+  },
+  "files": ["dist/src"],
+  "dependencies": {
+    "@eqlcc/event-schema": "*"
+  },
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,4 @@
+[Fri Jul 10 17:20:29 2026] You hit a fragile pet for 2 points of magic damage by Lifetap.
+[Fri Jul 10 17:20:37 2026] You hit a rambunctious pet for 4 points of magic damage by Lifetap.
+[Fri Jul 10 17:38:44 2026] a dune spiderling hit you for 3 points of poison damage by Feeble Poison.
+[Sat Jul 11 21:27:59 2026] Playerfive hit Footman of V`Zher for 130 points of fire damage by Flame Shock. (Critical)

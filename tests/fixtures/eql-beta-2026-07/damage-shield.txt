@@ -1,0 +1,6 @@
+[Fri Jul 10 19:20:58 2026] A cracked skeleton is burned by Playerseven's flames for 2 points of non-melee damage.
+[Sat Jul 11 19:35:30 2026] YOU are burned by a necro neophyte's flames for 6 points of non-melee damage!
+[Fri Jul 10 19:20:47 2026] A skeletal excavator is burned by YOUR flames for 2 points of non-melee damage.
+[Sat Jul 11 19:06:41 2026] YOU are pierced by Gynok Moltor's thorns for 6 points of non-melee damage!
+[Fri Jul 10 19:00:38 2026] A skeletal excavator is pierced by Playerseven's thorns for 5 points of non-melee damage.
+[Wed Jul 15 22:53:19 2026] A Nisch Mas Gnoll is tormented by Playertwentyfive's frost for 10 points of non-melee damage.

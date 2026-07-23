@@ -1,0 +1,9 @@
+[Fri Jul 10 17:20:32 2026] --You have looted a Fragile Pet's Skull from a fragile pet's corpse.--
+[Fri Jul 10 17:28:55 2026] --You have looted a Puma Skin from a young puma's corpse.--
+[Fri Jul 10 17:32:19 2026] --You have looted 2 Snake Scales from a moss snake's corpse.--
+[Sat Jul 11 21:03:14 2026] You looted a Rusty Dagger from a necro initiate's corpse to create a Rusty Dagger +1
+[Sat Jul 11 21:04:29 2026] You looted a Raw-Hide Tunic from a burnt zombie's corpse to create a Raw-Hide Tunic +1
+[Fri Jul 10 18:01:36 2026] You looted a Rusty Shortened Spear from a Deathfist pawn's corpse and sold it for 9 silver and 3 copper.
+[Fri Jul 10 18:08:26 2026] You looted a Snake Fang from a rattlesnake's corpse and sold it for 2 copper.
+[Fri Jul 10 20:12:55 2026] You looted a Skeletal Rod from skeleton L`rodd's corpse and sold it for free.
+[Sat Jul 11 21:43:56 2026] You looted a Bronze Main Gauche from a necro theurgist's corpse and sold it for 1 platinum, 2 gold, 8 silver and 6 copper.

@@ -1,0 +1,102 @@
+{
+  "fixture": "eql-beta-2026-07/spell-resist.txt",
+  "events": [
+    {
+      "type": "spell_resist",
+      "caster": "a large plague rat",
+      "target": "You",
+      "spell": "Plague Rat Disease",
+      "ts": 1783709980000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 18:59:40 2026] You resist a large plague rat's Plague Rat Disease!",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-you"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "a necro neophyte",
+      "target": "You",
+      "spell": "Disease Cloud",
+      "ts": 1783713708000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 20:01:48 2026] You resist a necro neophyte's Disease Cloud!",
+      "byteOffset": 79,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-you"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "You",
+      "target": "A skeletal excavator",
+      "spell": "Cease",
+      "ts": 1783729605000,
+      "seq": 3,
+      "raw": "[Sat Jul 11 00:26:45 2026] A skeletal excavator resisted your Cease!",
+      "byteOffset": 151,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-your-spell"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "You",
+      "target": "Asaka L`Rei",
+      "spell": "Cease",
+      "ts": 1783795630000,
+      "seq": 4,
+      "raw": "[Sat Jul 11 18:47:10 2026] Asaka L`Rei resisted your Cease!",
+      "byteOffset": 220,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-your-spell"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "Playerthirteen",
+      "target": "A greater skeleton",
+      "spell": "Cease",
+      "ts": 1783900752000,
+      "seq": 5,
+      "raw": "[Sun Jul 12 23:59:12 2026] A greater skeleton resisted Playerthirteen's Cease!",
+      "byteOffset": 280,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-other"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "Petone",
+      "target": "A skeletal excavator",
+      "spell": "Furor",
+      "ts": 1783977705000,
+      "seq": 6,
+      "raw": "[Mon Jul 13 21:21:45 2026] A skeletal excavator resisted Petone's Furor!",
+      "byteOffset": 359,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-other"
+    },
+    {
+      "type": "spell_resist",
+      "caster": "Playersixteen",
+      "target": "You",
+      "ts": 1783709440000,
+      "seq": 7,
+      "raw": "[Fri Jul 10 18:50:40 2026] Playersixteen tries to cast a spell on you, but you are protected.",
+      "byteOffset": 432,
+      "lineNo": 7,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "resist-protected"
+    }
+  ]
+}

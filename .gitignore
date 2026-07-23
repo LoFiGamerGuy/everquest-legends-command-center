@@ -19,3 +19,5 @@ coverage/
 # OS
 Thumbs.db
 .DS_Store
+# Fixture guard list (real names) — never commit
+.forbidden-names

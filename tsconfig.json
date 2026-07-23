@@ -1,5 +1,9 @@
 {
   // Solution-style root: `tsc -b` builds every referenced workspace project.
   "files": [],
-  "references": [{ "path": "./packages/event-schema" }, { "path": "./tsconfig.tools.json" }]
+  "references": [
+    { "path": "./packages/event-schema" },
+    { "path": "./packages/log-parser" },
+    { "path": "./tsconfig.tools.json" }
+  ]
 }
