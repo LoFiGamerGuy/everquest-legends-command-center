@@ -50,12 +50,14 @@ export interface TailedLine {
   /** 1-based line number, counted from the line at the tail's start offset. */
   lineNo: number;
   /**
-   * Present (and `true`) only when this "line" is an oversized unterminated
-   * buffer flushed because it exceeded `maxLineBytes` — a memory-safety
-   * valve, not a real log line. Its text ends mid-line; the runaway line's
-   * remaining bytes surface as subsequent lines/flushes. Offsets stay
-   * byte-true. Downstream parsing classifies these as `RawUnknown`, so the
-   * lossless model is preserved.
+   * Present (and `true`) on **every fragment of an overflowed physical
+   * line**: the flushed oversized buffers themselves *and* the terminal
+   * newline-terminated remainder of that same physical line. These are
+   * memory-safety flushes, not parseable log lines — their text starts or
+   * ends mid-line — so downstream MUST route `overflow` fragments to
+   * `RawUnknown` and never feed them to recognizers. Offsets stay
+   * byte-true. The flag clears with the first line that *starts* after the
+   * overflowed line's terminator.
    */
   overflow?: true;
 }
@@ -112,8 +114,16 @@ interface TailerEvents {
   lines: [batch: LineBatch];
   /** File shrank below the read position; tail restarted from offset 0. */
   truncated: [info: TruncationEvent];
-  /** Unexpected (non-transient) error. Informational: tailing continues. */
+  /** Unexpected (non-transient) file I/O error. Informational: tailing continues. */
   error: [error: Error];
+  /**
+   * A *consumer* (event listener) threw while handling `lines` (batch
+   * attached) or `truncated` (batch is `null`). Deliberately distinct from
+   * `error`, which is reserved for file I/O. For a rejected `lines` batch
+   * the tailer has already rewound to the batch start (see class doc), so
+   * the same bytes replay on the next poll.
+   */
+  "consumer-error": [error: Error, batch: LineBatch | null];
 }
 
 /** Error codes treated as transient: swallow and retry on the next tick. */
@@ -130,12 +140,34 @@ const TRANSIENT_CODES = new Set([
 
 const EMPTY = Buffer.alloc(0);
 
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/** Validate a numeric option: must be a positive finite safe integer. */
+export function requirePositiveInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive integer, got ${value}`);
+  }
+}
+
 /**
  * Tails one log file by byte offset. See module doc for the contract.
  *
  * Lifecycle: construct → `start(fromOffset)` → `lines`/`truncated` events →
  * `stop()`. `stop()` releases every timer and watcher; a stopped tailer may
  * be `start()`ed again.
+ *
+ * Consumer-failure contract (watermark safety invariant): if a `lines`
+ * listener throws, the batch is treated as **not consumed** — in-memory
+ * state (read offset, partial buffer, line numbers) is rewound to the batch
+ * start, a `consumer-error` event is emitted, the current pass aborts, and
+ * the next poll re-reads and replays the identical batch. The watermark
+ * therefore never advances past a batch the consumer failed to accept, so a
+ * crashing downstream can never cause skipped bytes. Consumer exceptions are
+ * never conflated with file I/O errors (`error`). A persistently throwing
+ * listener means the same batch is retried once per poll interval until it
+ * is accepted or the listener is fixed/detached.
  */
 export class LogTailer extends EventEmitter<TailerEvents> {
   readonly path: string;
@@ -166,6 +198,13 @@ export class LogTailer extends EventEmitter<TailerEvents> {
   /** File offset of `partial[0]`; equals the resume watermark. */
   private partialStart = 0;
   private nextLineNo = 1;
+  /**
+   * True while inside an overflowed physical line: earlier bytes of the
+   * current line were already flushed past the `maxLineBytes` cap, so every
+   * further fragment — including the terminal remainder once its newline
+   * arrives — must carry `overflow: true` (see {@link TailedLine.overflow}).
+   */
+  private inOverflow = false;
 
   constructor(filePath: string, options: LogTailerOptions = {}) {
     super();
@@ -175,9 +214,9 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     this.maxChunkBytes = options.maxChunkBytes ?? 64 * 1024;
     this.maxLineBytes = options.maxLineBytes ?? 1024 * 1024;
     this.encoding = options.encoding ?? "windows-1252";
-    if (this.pollIntervalMs <= 0) throw new RangeError("pollIntervalMs must be > 0");
-    if (this.maxChunkBytes <= 0) throw new RangeError("maxChunkBytes must be > 0");
-    if (this.maxLineBytes <= 0) throw new RangeError("maxLineBytes must be > 0");
+    requirePositiveInteger("pollIntervalMs", this.pollIntervalMs);
+    requirePositiveInteger("maxChunkBytes", this.maxChunkBytes);
+    requirePositiveInteger("maxLineBytes", this.maxLineBytes);
   }
 
   /**
@@ -187,7 +226,7 @@ export class LogTailer extends EventEmitter<TailerEvents> {
    */
   start(fromOffset = 0, firstLineNo = 1): void {
     if (this.running) throw new Error(`LogTailer for ${this.path} is already running`);
-    if (!Number.isInteger(fromOffset) || fromOffset < 0) {
+    if (!Number.isSafeInteger(fromOffset) || fromOffset < 0) {
       throw new RangeError(`fromOffset must be a non-negative integer, got ${fromOffset}`);
     }
     this.running = true;
@@ -198,6 +237,7 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     this.partial = EMPTY;
     this.partialStart = fromOffset;
     this.nextLineNo = firstLineNo;
+    this.inOverflow = false;
     if (this.useFsWatch) this.attachWatcher();
     this.schedule(0); // first pass immediately
   }
@@ -318,7 +358,16 @@ export class LogTailer extends EventEmitter<TailerEvents> {
       this.partial = EMPTY;
       this.partialStart = 0;
       this.nextLineNo = 1;
-      this.emit("truncated", { path: this.path, previousWatermark, newLength: size });
+      this.inOverflow = false;
+      // A throwing 'truncated' listener must not masquerade as an I/O error
+      // (runPass has no catch — it would become an unhandled rejection). The
+      // reset above is already applied and is watermark-safe (offset 0), so
+      // we surface the consumer failure and carry on.
+      try {
+        this.emit("truncated", { path: this.path, previousWatermark, newLength: size });
+      } catch (err) {
+        this.emitConsumerError(err, null);
+      }
     }
     if (size <= this.nextReadOffset) return; // nothing new
 
@@ -338,7 +387,9 @@ export class LogTailer extends EventEmitter<TailerEvents> {
         const { bytesRead } = await handle.read(buf, 0, want, this.nextReadOffset);
         if (this.generation !== gen) return; // superseded mid-read: abandon
         if (bytesRead <= 0) break; // shrank mid-read; next pass re-checks
-        this.ingest(buf.subarray(0, bytesRead));
+        // A consumer rejected the batch: state is rewound, abort the pass —
+        // the next poll re-reads the same bytes and replays the batch.
+        if (!this.ingest(buf.subarray(0, bytesRead))) return;
       }
     } catch (err) {
       this.reportError(err, gen);
@@ -351,29 +402,52 @@ export class LogTailer extends EventEmitter<TailerEvents> {
    * Split a newly-read chunk into complete lines; buffer the remainder.
    * Only called from a pass whose generation is current (and `ingest` is
    * synchronous), so it may mutate state and emit freely.
+   *
+   * Returns `false` when a `lines` listener threw. In that case nothing
+   * from this chunk counts as consumed: all in-memory state is rewound to
+   * the batch start, `consumer-error` is emitted with the rejected batch,
+   * and the caller must abort the pass so the next poll replays the same
+   * bytes (see the class doc's consumer-failure contract).
    */
-  private ingest(chunk: Buffer): void {
+  private ingest(chunk: Buffer): boolean {
+    // Snapshot for rewind in case the consumer rejects the batch.
+    const prevNextReadOffset = this.nextReadOffset;
+    const prevPartial = this.partial;
+    const prevPartialStart = this.partialStart;
+    const prevLineNo = this.nextLineNo;
+    const prevInOverflow = this.inOverflow;
+
     const base = this.partialStart;
     const buf = this.partial.length > 0 ? Buffer.concat([this.partial, chunk]) : chunk;
     this.nextReadOffset += chunk.length;
 
     const lines: TailedLine[] = [];
+    // True while the bytes being scanned belong to a physical line whose
+    // earlier bytes were already flushed as overflow fragments.
+    let carryOverflow = this.inOverflow;
     let lineStart = 0;
     let nl: number;
     while ((nl = buf.indexOf(0x0a, lineStart)) !== -1) {
       let end = nl;
       if (end > lineStart && buf[end - 1] === 0x0d) end--; // tolerate CRLF
-      lines.push({
+      const line: TailedLine = {
         line: decodeLine(buf.subarray(lineStart, end), this.encoding),
         byteOffset: base + lineStart,
         lineNo: this.nextLineNo++,
-      });
+      };
+      if (carryOverflow) {
+        // This newline terminates an overflowed physical line: its terminal
+        // remainder is a fragment too, never a parseable line.
+        line.overflow = true;
+        carryOverflow = false;
+      }
+      lines.push(line);
       lineStart = nl + 1;
     }
 
     // Memory-safety valve: a never-terminated line must not buffer forever.
-    // Flush the oversized remainder as an `overflow` line and advance the
-    // watermark past it (see TailedLine.overflow for the semantics).
+    // Flush the oversized remainder as an `overflow` fragment and advance
+    // the watermark past it (see TailedLine.overflow for the semantics).
     if (buf.length - lineStart > this.maxLineBytes) {
       lines.push({
         line: decodeLine(buf.subarray(lineStart), this.encoding),
@@ -382,14 +456,41 @@ export class LogTailer extends EventEmitter<TailerEvents> {
         overflow: true,
       });
       lineStart = buf.length;
+      carryOverflow = true; // the rest of this physical line is fragments too
     }
+    this.inOverflow = carryOverflow;
 
     // Copy the remainder so we never pin the (up to 64 KiB) read buffer.
     this.partial = lineStart < buf.length ? Buffer.from(buf.subarray(lineStart)) : EMPTY;
     this.partialStart = base + lineStart;
 
     if (lines.length > 0) {
-      this.emit("lines", { lines, watermark: this.partialStart });
+      const batch: LineBatch = { lines, watermark: this.partialStart };
+      try {
+        this.emit("lines", batch);
+      } catch (err) {
+        // Watermark safety invariant: a batch the consumer failed to accept
+        // is not consumed. Rewind so no later batch can carry a watermark
+        // past it, and report the failure distinctly from file I/O errors.
+        this.nextReadOffset = prevNextReadOffset;
+        this.partial = prevPartial;
+        this.partialStart = prevPartialStart;
+        this.nextLineNo = prevLineNo;
+        this.inOverflow = prevInOverflow;
+        this.emitConsumerError(err, batch);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Surface a consumer (listener) exception; never let it escape the pass. */
+  private emitConsumerError(err: unknown, batch: LineBatch | null): void {
+    try {
+      this.emit("consumer-error", asError(err), batch);
+    } catch {
+      // A throwing consumer-error listener is dropped — there is no further
+      // channel to report it on, and it must not corrupt the pass.
     }
   }
 
@@ -403,7 +504,13 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     const code = (err as NodeJS.ErrnoException | null)?.code;
     if (code !== undefined && TRANSIENT_CODES.has(code)) return;
     if (this.generation === gen && this.listenerCount("error") > 0) {
-      this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      try {
+        this.emit("error", asError(err));
+      } catch (listenerErr) {
+        // Even the I/O-error channel gets consumer-failure isolation: a
+        // throwing 'error' listener must not become an unhandled rejection.
+        this.emitConsumerError(listenerErr, null);
+      }
     }
   }
 }

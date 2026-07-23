@@ -153,6 +153,78 @@ describe("TailManager", () => {
     expect(rec.linesOf(older)).toEqual(["o1"]);
   });
 
+  it("start() is transactional: a bad Logs directory leaves the manager not-running", () => {
+    const dir = makeTmpDir(dirs);
+    const manager = makeManager({ logsDir: path.join(dir, "does-not-exist") });
+    expect(() => manager.start()).toThrow();
+    expect(manager.isRunning).toBe(false);
+    expect(manager.files().size).toBe(0);
+    // Not left half-started: once the directory exists, start() works.
+    fs.mkdirSync(path.join(dir, "does-not-exist"));
+    manager.start();
+    expect(manager.isRunning).toBe(true);
+  });
+
+  it("start() is transactional: a throwing resolveStartOffset stops already-started tailers", async () => {
+    const dir = makeTmpDir(dirs);
+    const good = makeLog(dir, "Playerone", "erudin", 100); // ranked second (older)
+    makeLog(dir, "Playertwo", "freeport", 0); // ranked first — resolves fine
+    const poison = makeLog(dir, "Playerthree", "neriak", 200); // ranked last — throws
+
+    const manager = makeManager({
+      logsDir: dir,
+      resolveStartOffset: (f) => {
+        if (f.path === poison) throw new Error("watermark lookup failed");
+        return 0;
+      },
+    });
+    const rec = recordManager(manager);
+    expect(() => manager.start()).toThrow(/watermark lookup failed/);
+    expect(manager.isRunning).toBe(false);
+    expect(manager.files().size).toBe(0);
+
+    // No stray tailer survived the rollback: appends surface nothing.
+    append(good, "leak?\n");
+    await sleep(POLL * 5);
+    expect(rec.batches).toEqual([]);
+  });
+
+  it("validates maxFiles: rejects NaN/zero/negative/fractional, allows Infinity", () => {
+    const dir = makeTmpDir(dirs);
+    makeLog(dir, "Playerone", "erudin", 0);
+    for (const bad of [Number.NaN, 0, -1, 1.5]) {
+      expect(() => makeManager({ logsDir: dir, maxFiles: bad })).toThrow(RangeError);
+    }
+    const all = makeManager({ logsDir: dir, maxFiles: Infinity }); // documented: tail everything
+    all.start();
+    expect(all.files().size).toBe(1);
+  });
+
+  it("forwards consumer failures as 'consumer-error' with the fileId, and the batch replays", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = makeLog(dir, "Playerone", "erudin", 0);
+    fs.writeFileSync(file, "x\n");
+
+    const manager = makeManager({ logsDir: dir });
+    const consumerErrors: { fileId: string; lines: string[] | null }[] = [];
+    manager.on("consumer-error", (_err, fileId, batch) =>
+      consumerErrors.push({ fileId, lines: batch === null ? null : batch.lines.map((l) => l.line) }),
+    );
+    const accepted: string[] = [];
+    let deliveries = 0;
+    manager.on("lines", (batch) => {
+      deliveries++;
+      if (deliveries === 1) throw new Error("manager consumer failed");
+      accepted.push(...batch.lines.map((l) => l.line));
+    });
+    manager.start();
+
+    await waitFor(() => accepted.length >= 1, "replay after manager-level consumer failure");
+    expect(consumerErrors).toEqual([{ fileId: file, lines: ["x"] }]);
+    expect(accepted).toEqual(["x"]); // exactly once: rejected delivery not double-counted
+    expect(manager.watermarkOf(file)).toBe(2);
+  });
+
   it("stop() halts every tailer: appends afterwards emit nothing", async () => {
     const dir = makeTmpDir(dirs);
     const a = makeLog(dir, "Playerone", "erudin", 0);

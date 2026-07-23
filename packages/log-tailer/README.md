@@ -40,11 +40,23 @@ directory is ever written.
   - Bytes are decoded as Windows-1252 (lossless fallback) after slicing;
     offsets always count raw bytes.
   - **Runaway lines are bounded:** a partial line that grows past
-    `maxLineBytes` (default 1 MiB) is flushed as a line marked
-    `overflow: true` and the watermark advances past it, so a
-    never-terminated line cannot grow memory forever. Overflow flushes are a
-    memory-safety valve, not real log lines — offsets stay byte-true, and
-    downstream parsing classifies them as `RawUnknown`.
+    `maxLineBytes` (default 1 MiB) is flushed with `overflow: true` and the
+    watermark advances past it, so a never-terminated line cannot grow
+    memory forever. **Every fragment of an overflowed physical line carries
+    `overflow: true`** — the flushed buffers *and* the terminal
+    newline-terminated remainder — because none of them is a complete
+    parseable line. Downstream MUST route `overflow` fragments to
+    `RawUnknown` and never feed them to recognizers. Offsets stay
+    byte-true; the flag clears with the first line that starts after the
+    overflowed line's terminator.
+  - **Consumer failures never skip bytes:** if a `lines` listener throws,
+    the batch counts as *not consumed* — the tailer rewinds its in-memory
+    state to the batch start, emits a distinct `consumer-error` event
+    (never conflated with the file-I/O `error` event), aborts the current
+    pass, and replays the identical batch on the next poll. The watermark
+    therefore never advances past a batch the consumer failed to accept. A
+    persistently throwing listener re-delivers the same batch once per poll
+    interval until it is accepted or detached.
 - **`TailManager`** — discovery + one `LogTailer` per selected file (the N
   most recently modified, or all), re-emitting events tagged with a stable
   `fileId` (the resolved absolute path — the same identity `log_files.path`

@@ -16,7 +16,13 @@
 import { EventEmitter } from "node:events";
 
 import { discoverLogFiles, type DiscoveredLogFile } from "./discovery.js";
-import { LogTailer, type LineBatch, type LogTailerOptions, type TruncationEvent } from "./tailer.js";
+import {
+  LogTailer,
+  requirePositiveInteger,
+  type LineBatch,
+  type LogTailerOptions,
+  type TruncationEvent,
+} from "./tailer.js";
 
 /** A {@link LineBatch} tagged with the file it came from. */
 export interface ManagedLineBatch extends LineBatch {
@@ -36,8 +42,9 @@ export interface TailManagerOptions {
   /** Logs directory to scan for `eqlog_<Character>_<server>.txt` files. */
   logsDir: string;
   /**
-   * Tail only the N most recently modified log files. Omit (or set to
-   * `Infinity`) to tail every discovered file.
+   * Tail only the N most recently modified log files. Must be a positive
+   * integer; `Infinity` is explicitly allowed and, like omitting the
+   * option, means "tail every discovered file".
    */
   maxFiles?: number;
   /**
@@ -52,7 +59,15 @@ export interface TailManagerOptions {
 interface ManagerEvents {
   lines: [batch: ManagedLineBatch];
   truncated: [info: ManagedTruncationEvent];
+  /** File I/O error from one file's tailer. */
   error: [error: Error, fileId: string];
+  /**
+   * A consumer (listener) threw while handling this file's `lines` (batch
+   * attached) or `truncated` (batch is `null`). The underlying tailer has
+   * already rewound, so a rejected batch replays on its next poll — see
+   * LogTailer's consumer-failure contract.
+   */
+  "consumer-error": [error: Error, fileId: string, batch: ManagedLineBatch | null];
 }
 
 /**
@@ -71,17 +86,27 @@ export class TailManager extends EventEmitter<ManagerEvents> {
 
   constructor(options: TailManagerOptions) {
     super();
-    if (options.maxFiles !== undefined && options.maxFiles < 1) {
-      throw new RangeError("maxFiles must be >= 1");
+    if (options.maxFiles !== undefined && options.maxFiles !== Infinity) {
+      requirePositiveInteger("maxFiles", options.maxFiles);
     }
     this.options = options;
   }
 
-  /** Discover files and start one tailer per selected file. */
+  /**
+   * Discover files and start one tailer per selected file. Transactional:
+   * if discovery or any tailer startup throws (bad Logs directory, throwing
+   * `resolveStartOffset`, ...), every tailer already started by this call is
+   * stopped, the manager is left not-running, and the error propagates.
+   */
   start(): void {
     if (this.running) throw new Error("TailManager is already running");
     this.running = true;
-    this.rescan();
+    try {
+      this.rescan(); // rolls back its own additions on failure
+    } catch (err) {
+      this.stop(); // release anything that survived (defensive; also resets running)
+      throw err;
+    }
   }
 
   /**
@@ -97,11 +122,19 @@ export class TailManager extends EventEmitter<ManagerEvents> {
    *
    * A re-added file resumes wherever `resolveStartOffset` says, so pairing
    * rescans with a persisted watermark (see README) makes swaps lossless.
+   *
+   * Failure semantics: if adding any newly selected file throws (bad
+   * directory read happens before any change; a throwing
+   * `resolveStartOffset` or tailer startup mid-scan), the additions made by
+   * *this* scan are stopped and removed again, then the error propagates.
+   * Tails that were already live before the scan stay live; removals
+   * (stopped tailers) are not resurrected.
    */
   rescan(): { added: DiscoveredLogFile[]; removed: DiscoveredLogFile[] } {
     if (!this.running) throw new Error("TailManager is not running");
     const discovered = discoverLogFiles(this.options.logsDir); // most recent first
-    const desired = discovered.slice(0, this.options.maxFiles ?? discovered.length);
+    const maxFiles = this.options.maxFiles ?? Infinity;
+    const desired = maxFiles === Infinity ? discovered : discovered.slice(0, maxFiles);
     const desiredIds = new Set(desired.map((f) => f.path));
 
     const removed: DiscoveredLogFile[] = [];
@@ -114,14 +147,23 @@ export class TailManager extends EventEmitter<ManagerEvents> {
     }
 
     const added: DiscoveredLogFile[] = [];
-    for (const file of desired) {
-      const existing = this.tails.get(file.path);
-      if (existing !== undefined) {
-        existing.file = file; // refresh size/mtime metadata; tailer stays live
-      } else {
-        this.addTail(file);
-        added.push(file);
+    try {
+      for (const file of desired) {
+        const existing = this.tails.get(file.path);
+        if (existing !== undefined) {
+          existing.file = file; // refresh size/mtime metadata; tailer stays live
+        } else {
+          this.addTail(file);
+          added.push(file);
+        }
       }
+    } catch (err) {
+      // Roll back this scan's additions so a failed scan leaves no strays.
+      for (const file of added) {
+        this.tails.get(file.path)?.tailer.stop();
+        this.tails.delete(file.path);
+      }
+      throw err;
     }
     return { added, removed };
   }
@@ -149,9 +191,16 @@ export class TailManager extends EventEmitter<ManagerEvents> {
     return this.tails.get(fileId)?.tailer.watermark;
   }
 
+  /**
+   * Transactional insert: anything that can throw — `resolveStartOffset`,
+   * tailer construction (option validation), `tailer.start` (offset
+   * validation) — happens before the entry is registered in `tails`, so a
+   * failed add leaves no partially-started tailer behind.
+   */
   private addTail(file: DiscoveredLogFile): void {
     const fileId = file.path;
-    const tailer = new LogTailer(file.path, this.options.tailer ?? {});
+    const fromOffset = this.options.resolveStartOffset?.(file) ?? 0; // may throw
+    const tailer = new LogTailer(file.path, this.options.tailer ?? {}); // may throw
     const entry = { file, tailer };
     // Read `entry.file` at emit time so rescan metadata refreshes are seen.
     tailer.on("lines", (batch) => this.emit("lines", { ...batch, fileId, file: entry.file }));
@@ -159,8 +208,20 @@ export class TailManager extends EventEmitter<ManagerEvents> {
     tailer.on("error", (err) => {
       if (this.listenerCount("error") > 0) this.emit("error", err, fileId);
     });
-    this.tails.set(fileId, entry);
-    const fromOffset = this.options.resolveStartOffset?.(file) ?? 0;
-    tailer.start(fromOffset);
+    tailer.on("consumer-error", (err, batch) => {
+      this.emit(
+        "consumer-error",
+        err,
+        fileId,
+        batch === null ? null : { ...batch, fileId, file: entry.file },
+      );
+    });
+    try {
+      tailer.start(fromOffset); // may throw (validates fromOffset)
+    } catch (err) {
+      tailer.stop(); // defensive: release anything start() managed to arm
+      throw err;
+    }
+    this.tails.set(fileId, entry); // registered only once fully started
   }
 }

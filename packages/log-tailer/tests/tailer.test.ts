@@ -291,10 +291,14 @@ describe("LogTailer — oversized unterminated lines (maxLineBytes)", () => {
     });
     expect(tailer.watermark).toBe(100); // advanced past the flushed bytes
 
-    // Bytes after the flush start a fresh line at a byte-true offset.
-    append(file, "tail\n");
-    await waitFor(() => rec.lines().length >= 2, "line after overflow");
-    expect(rec.lines()[1]).toEqual({ line: "tail", byteOffset: 100, lineNo: 2 });
+    // The terminal remainder belongs to the same overflowed physical line,
+    // so it is a fragment too (overflow: true) — a recognizer must never see
+    // it as a parseable line. The first line *after* the terminator is clean.
+    append(file, "tail\nreal\n");
+    await waitFor(() => rec.lines().length >= 3, "remainder + clean line");
+    expect(rec.lines()[1]).toEqual({ line: "tail", byteOffset: 100, lineNo: 2, overflow: true });
+    expect(rec.lines()[2]).toEqual({ line: "real", byteOffset: 105, lineNo: 3 });
+    expect(rec.lines()[2]!.overflow).toBeUndefined();
   });
 
   it("never lets the buffered partial exceed maxLineBytes + maxChunkBytes under steady growth", async () => {
@@ -316,8 +320,9 @@ describe("LogTailer — oversized unterminated lines (maxLineBytes)", () => {
 
     const got = rec.lines();
     expect(got.length).toBeGreaterThan(1); // the cap forced at least one mid-line flush
-    // Every emission except the final terminated remainder is an overflow flush.
-    expect(got.slice(0, -1).every((l) => l.overflow === true)).toBe(true);
+    // EVERY fragment of the overflowed physical line is flagged — including
+    // the terminal newline-terminated remainder.
+    expect(got.every((l) => l.overflow === true)).toBe(true);
     // No emission ever exceeds the documented bound (the buffer never grew past it).
     expect(Math.max(...got.map((l) => l.line.length))).toBeLessThanOrEqual(64 + 32);
     // Emissions are contiguous and lossless: concatenation is the original bytes.
@@ -328,6 +333,93 @@ describe("LogTailer — oversized unterminated lines (maxLineBytes)", () => {
     }
     expect(got.map((l) => l.line).join("")).toBe("y".repeat(total));
     expect(tailer.watermark).toBe(total + 1); // past the terminator
+  });
+});
+
+describe("LogTailer — consumer failures (watermark safety)", () => {
+  it("a throwing 'lines' listener never advances the watermark; a re-attached listener replays the batch", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    fs.writeFileSync(file, "a\nb\n");
+
+    const tailer = makeTailer(file);
+    const consumerErrors: { error: Error; batchLines: string[] | null }[] = [];
+    const ioErrors: Error[] = [];
+    tailer.on("consumer-error", (error, batch) =>
+      consumerErrors.push({ error, batchLines: batch === null ? null : batch.lines.map((l) => l.line) }),
+    );
+    tailer.on("error", (e) => ioErrors.push(e));
+    const bad = () => {
+      throw new Error("consumer exploded");
+    };
+    tailer.on("lines", bad);
+    tailer.start(0);
+
+    // The rejected batch is retried (and rejected) on successive polls.
+    await waitFor(() => consumerErrors.length >= 2, "repeated rejection");
+    expect(tailer.watermark).toBe(0); // state never passed the failed batch
+    expect(consumerErrors[0]!.error.message).toBe("consumer exploded");
+    expect(consumerErrors[0]!.batchLines).toEqual(["a", "b"]); // the rejected batch is attached
+    // The consumer exception was NOT conflated with a tailer I/O error.
+    expect(ioErrors).toEqual([]);
+
+    // Fix the consumer: the identical batch replays, nothing was skipped.
+    tailer.off("lines", bad);
+    const rec = record(tailer);
+    await waitFor(() => rec.lines().length >= 2, "replayed batch");
+    expect(rec.lines()).toEqual([
+      { line: "a", byteOffset: 0, lineNo: 1 },
+      { line: "b", byteOffset: 2, lineNo: 2 },
+    ] satisfies TailedLine[]);
+    expect(rec.batches[0]!.watermark).toBe(4);
+    expect(tailer.watermark).toBe(4);
+  });
+
+  it("a listener that throws once causes a single replay: no skipped bytes, no duplicates", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    fs.writeFileSync(file, "one\ntwo\n");
+
+    const tailer = makeTailer(file);
+    const consumerErrors: Error[] = [];
+    tailer.on("consumer-error", (e) => consumerErrors.push(e));
+    const accepted: TailedLine[] = [];
+    let deliveries = 0;
+    tailer.on("lines", (batch) => {
+      deliveries++;
+      if (deliveries === 1) throw new Error("transient consumer failure");
+      accepted.push(...batch.lines);
+    });
+    tailer.start(0);
+
+    await waitFor(() => accepted.length >= 2, "accepted on retry");
+    expect(consumerErrors).toHaveLength(1);
+    expect(accepted).toEqual([
+      { line: "one", byteOffset: 0, lineNo: 1 },
+      { line: "two", byteOffset: 4, lineNo: 2 },
+    ] satisfies TailedLine[]);
+    expect(tailer.watermark).toBe(8);
+
+    // Later batches keep flowing normally after the recovery.
+    append(file, "three\n");
+    await waitFor(() => accepted.length >= 3, "post-recovery line");
+    expect(accepted[2]).toEqual({ line: "three", byteOffset: 8, lineNo: 3 });
+  });
+});
+
+describe("LogTailer — option validation", () => {
+  it("rejects NaN/Infinity/zero/negative/fractional numeric options", () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    for (const bad of [Number.NaN, Infinity, -Infinity, 0, -1, 1.5]) {
+      expect(() => new LogTailer(file, { pollIntervalMs: bad })).toThrow(RangeError);
+      expect(() => new LogTailer(file, { maxChunkBytes: bad })).toThrow(RangeError);
+      expect(() => new LogTailer(file, { maxLineBytes: bad })).toThrow(RangeError);
+    }
+    for (const bad of [Number.NaN, Infinity, -1, 1.5]) {
+      const tailer = makeTailer(file);
+      expect(() => tailer.start(bad)).toThrow(RangeError);
+    }
   });
 });
 
