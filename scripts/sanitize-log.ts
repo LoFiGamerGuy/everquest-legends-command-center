@@ -12,8 +12,18 @@ if (!file) { console.error("usage: sanitize-log.ts input.txt --players A,B --pet
 const get = (flag: string) => (args.includes(flag) ? (args[args.indexOf(flag) + 1] ?? "").split(",").filter(Boolean) : []);
 const players = get("--players"), pets = get("--pets");
 let text = fs.readFileSync(file, "utf8");
-const replaceAll = (names: string[], prefix: string) =>
-  names.forEach((n, i) => { text = text.replace(new RegExp(`\\b${n}\\b`, "g"), `${prefix}${["one","two","three","four","five","six","seven","eight","nine","ten"][i] ?? i}`); });
+const ORDINALS = ["one","two","three","four","five","six","seven","eight","nine","ten"];
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const replaceAll = (names: string[], prefix: string) => {
+  // Longest-first so overlapping names (one a prefix of another) never
+  // partially rewrite each other; labels keep the CLI argument order.
+  // \w lookarounds instead of \b: names may end in non-word characters,
+  // where \b silently fails to match.
+  const labeled = names.map((n, i) => [n, `${prefix}${ORDINALS[i] ?? i}`] as const);
+  for (const [n, label] of [...labeled].sort((a, b) => b[0].length - a[0].length)) {
+    text = text.replace(new RegExp(`(?<!\\w)${escapeRegExp(n)}(?!\\w)`, "g"), label);
+  }
+};
 replaceAll(players, "Player");
 replaceAll(pets, "Pet");
 process.stdout.write(text);
