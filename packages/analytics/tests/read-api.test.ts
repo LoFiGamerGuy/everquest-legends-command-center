@@ -58,10 +58,21 @@ describe("read API — session analytics & economy", () => {
 
   it("returns loot, currency and faction rows", () => {
     expect(getLoot(db).map((l) => l.mode)).toEqual(["auto_sold"]);
-    expect(getCurrency(db).map((c) => [c.reason, c.deltaCopper])).toEqual([["auto_sell", 18]]);
+    // auto_sell (session 1, +18c) then the verified coin_gain (session 2, +5c loot_coin).
+    expect(getCurrency(db).map((c) => [c.reason, c.deltaCopper])).toEqual([
+      ["auto_sell", 18],
+      ["loot_coin", 5],
+    ]);
     expect(getFactionChanges(db, session1).map((f) => [f.factionName, f.delta])).toEqual([
       ["New Sebilisian Expedition", 100],
     ]);
+  });
+
+  it("projects the verified skill_up into skill_events", () => {
+    const skills = db
+      .prepare("SELECT skill_name, new_value FROM skill_events ORDER BY id")
+      .all() as { skill_name: string; new_value: number }[];
+    expect(skills).toEqual([{ skill_name: "1H Slashing", new_value: 12 }]);
   });
 });
 

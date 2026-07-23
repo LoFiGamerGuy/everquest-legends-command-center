@@ -9,10 +9,10 @@
  *    (evidence `kill_proximity`, confidence by proximity).
  *  - aa_events: `ability_purchase`.
  *  - loot_events: `loot_item` (kept) / `loot_auto_sell` (auto_sold).
- *  - currency_ledger: only `auto_sell` is VERIFIED (spec §7) — recorded from
- *    `loot_auto_sell`. `coin_gain` mapping is deferred (see README / return note).
+ *  - currency_ledger: `auto_sell` from `loot_auto_sell` and `loot_coin` from
+ *    `coin_gain` (both corpus-verified). vendor/other reasons stay deferred.
  *  - faction_events: `faction_change`.
- *  - skill_events: reserved — writes nothing (no fixture; spec §7).
+ *  - skill_events: `skill_up` (corpus-verified "…better at X! (N)").
  */
 
 import type { PassContext, PassEvent, Projector } from "./types.js";
@@ -106,6 +106,16 @@ export function createDomainProjector(): Projector {
              ON CONFLICT(event_id) DO NOTHING`,
           ).run({ event: pe.id, ts: e.ts, session: sessionId, copper: e.totalCopper });
           return;
+        case "coin_gain":
+          // coin_gain is corpus-verified (@eqlcc/event-schema): record it as a
+          // loot_coin ledger delta. vendor/other reasons stay deferred (still
+          // unverified line formats — never invent a coin delta, spec §7).
+          db.prepare(
+            `INSERT INTO currency_ledger (event_id, ts, session_id, delta_copper, reason)
+             VALUES (@event, @ts, @session, @copper, 'loot_coin')
+             ON CONFLICT(event_id) DO NOTHING`,
+          ).run({ event: pe.id, ts: e.ts, session: sessionId, copper: e.totalCopper });
+          return;
         case "faction_change":
           db.prepare(
             `INSERT INTO faction_events (event_id, ts, session_id, faction_name, delta)
@@ -113,8 +123,16 @@ export function createDomainProjector(): Projector {
              ON CONFLICT(event_id) DO NOTHING`,
           ).run({ event: pe.id, ts: e.ts, session: sessionId, faction: e.faction, delta: e.delta });
           return;
+        case "skill_up":
+          // skill_up is corpus-verified ("You have become better at X! (N)").
+          db.prepare(
+            `INSERT INTO skill_events (event_id, ts, session_id, skill_name, new_value)
+             VALUES (@event, @ts, @session, @skill, @value)
+             ON CONFLICT(event_id) DO NOTHING`,
+          ).run({ event: pe.id, ts: e.ts, session: sessionId, skill: e.skill, value: e.value });
+          return;
         default:
-          return; // skill_up etc. — reserved, writes nothing
+          return;
       }
     },
 

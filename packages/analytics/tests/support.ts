@@ -47,8 +47,14 @@ export function insertEvents(db: SqlDatabase, events: readonly LogEvent[]): void
   tx();
 }
 
-/** Projection tables with a stable ordering key for deterministic snapshots. */
+/**
+ * Projection tables with a stable ordering key for deterministic snapshots. The
+ * `events` backfill columns (session_id / encounter_id, assigned by the sessions
+ * / encounters projectors) are included via a projected view so determinism /
+ * incremental / idempotency also assert the backfill, not just derived tables.
+ */
 const SNAPSHOT_TABLES: ReadonlyArray<[string, string]> = [
+  ["events_backfill", "ORDER BY id"],
   ["entities", "ORDER BY id"],
   ["entity_links", "ORDER BY id"],
   ["sessions", "ORDER BY id"],
@@ -73,7 +79,9 @@ export type Snapshot = Record<string, unknown[]>;
 export function snapshot(db: SqlDatabase): Snapshot {
   const out: Snapshot = {};
   for (const [table, order] of SNAPSHOT_TABLES) {
-    out[table] = db.prepare(`SELECT * FROM ${table} ${order}`).all();
+    const from =
+      table === "events_backfill" ? "SELECT id, session_id, encounter_id FROM events" : `SELECT * FROM ${table}`;
+    out[table] = db.prepare(`${from} ${order}`).all();
   }
   return out;
 }

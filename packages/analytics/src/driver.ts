@@ -68,26 +68,26 @@ export interface DriverResult {
   headEventId: number;
 }
 
-/** Full rebuild: wipe every projector's output, then rebuild from `from` (default 0). */
-export function rebuildProjections(
-  db: Db,
-  opts: { from?: number } & ProjectionOptionsInput = {},
-): DriverResult {
-  const { from, ...optionInput } = opts;
-  const options = resolveOptions(optionInput);
+/**
+ * Full rebuild: wipe every projector's output and replay from event 1. A rebuild
+ * is ALWAYS a full wipe + replay-from-start — there is deliberately no `from`
+ * option (a partial wipe with a non-zero start would delete events ≤ start and
+ * never reprocess them; partial rebuild is not an M1 need).
+ */
+export function rebuildProjections(db: Db, optsInput: ProjectionOptionsInput = {}): DriverResult {
+  const options = resolveOptions(optsInput);
   const projectors = buildProjectors();
   ensureStateRows(db, projectors);
   const runtime = loadRuntime(db, projectors);
   const ownerFile = getOwnerFile(db);
   const ctx = makeContext(db, options, ownerFile);
 
-  const wipeFrom = from ?? 0;
   runInTx(db, () => {
-    // Reset in reverse dependency order to satisfy FKs, then set the watermark.
+    // Reset in reverse dependency order to satisfy FKs; watermark back to 0.
     for (const rs of [...runtime].reverse()) {
       rs.projector.reset(ctx);
-      rs.lastEventId = wipeFrom;
-      setState(db, rs.projector.name, wipeFrom, rs.projector.version);
+      rs.lastEventId = 0;
+      setState(db, rs.projector.name, 0, rs.projector.version);
     }
   });
 
@@ -103,12 +103,19 @@ export function updateProjections(db: Db, optsInput: ProjectionOptionsInput = {}
   const ownerFile = getOwnerFile(db);
   const ctx = makeContext(db, options, ownerFile);
 
-  // Version-bump handling (spec §9.3): reset exactly the mismatched projectors
-  // (in reverse dependency order) to a clean rebuild-from-0, leaving others.
-  const mismatched = runtime.filter((rs) => storedVersion(db, rs.projector.name) !== rs.projector.version);
-  if (mismatched.length > 0) {
+  // Version-bump handling (spec §9.3): reset the earliest mismatched projector
+  // AND every projector downstream of it — later projectors read the outputs of
+  // earlier ones, so a bumped upstream projector must force its dependents to
+  // re-derive too (a leaf bump resets only itself + trailing leaves). The
+  // registry is dependency-ordered, so "reset i and all j > i" is the simple,
+  // clearly-correct cascade. Reset in reverse order to satisfy FKs.
+  const firstMismatch = runtime.findIndex(
+    (rs) => storedVersion(db, rs.projector.name) !== rs.projector.version,
+  );
+  if (firstMismatch >= 0) {
+    const toReset = runtime.slice(firstMismatch);
     runInTx(db, () => {
-      for (const rs of [...mismatched].reverse()) {
+      for (const rs of [...toReset].reverse()) {
         rs.projector.reset(ctx);
         rs.lastEventId = 0;
         setState(db, rs.projector.name, 0, rs.projector.version);
@@ -157,6 +164,8 @@ function runPass(
     const chunk = rows.slice(i, i + options.batchSize);
     runInTx(db, () => {
       for (const row of chunk) {
+        // payload is trusted data written by the @eqlcc/event-schema serializer
+        // at ingestion (the typed LogEvent), so a plain parse+cast is safe here.
         const event = JSON.parse(row.payload) as LogEvent;
         const pe: PassEvent = {
           event,

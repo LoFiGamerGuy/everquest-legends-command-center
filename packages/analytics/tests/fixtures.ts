@@ -141,6 +141,15 @@ export const faction = (name: string, delta: number): EventFields => ({
   faction: name,
   delta,
 });
+export const coinGain = (
+  totalCopper: number,
+  source: "corpse" | "item" | "merchant" = "corpse",
+): EventFields => ({ type: "coin_gain", totalCopper, source });
+export const skillUp = (skill: string, value: number): EventFields => ({
+  type: "skill_up",
+  skill,
+  value,
+});
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -169,5 +178,7 @@ export function groupFightScenario(): Scenario {
   s.add(40 * MINUTE, zoneEnter("New Sebilis Expedition")); // instance heuristic
   s.add(SECOND, melee("You", "a greater skeleton", 7)); // new encounter in session 2
   s.add(SECOND, kill("You", "a greater skeleton"));
+  s.add(SECOND, coinGain(5, "corpse")); // +5c loot_coin (verified coin_gain), session 2
+  s.add(SECOND, skillUp("1H Slashing", 12)); // skill_events row (verified skill_up), session 2
   return s;
 }

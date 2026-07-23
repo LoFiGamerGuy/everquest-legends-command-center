@@ -55,11 +55,16 @@ function sessionSpan(db: Db, sessionId: number): number {
   return Math.max(0, last - s.started_ts);
 }
 
+const LOOT_COLUMNS =
+  "event_id, ts, session_id, item_name, quantity, corpse_name, mode, sale_total_copper";
+
 export function getLoot(db: Db, filter: { sessionId?: number } = {}): LootRecord[] {
   const rows = (
     filter.sessionId === undefined
-      ? db.prepare("SELECT * FROM loot_events ORDER BY ts, id").all()
-      : db.prepare("SELECT * FROM loot_events WHERE session_id = ? ORDER BY ts, id").all(filter.sessionId)
+      ? db.prepare(`SELECT ${LOOT_COLUMNS} FROM loot_events ORDER BY ts, id`).all()
+      : db
+          .prepare(`SELECT ${LOOT_COLUMNS} FROM loot_events WHERE session_id = ? ORDER BY ts, id`)
+          .all(filter.sessionId)
   ) as {
     event_id: number;
     ts: number;
@@ -83,10 +88,11 @@ export function getLoot(db: Db, filter: { sessionId?: number } = {}): LootRecord
 }
 
 export function getCurrency(db: Db, filter: { sessionId?: number } = {}): CurrencyRecord[] {
+  const cols = "event_id, ts, session_id, delta_copper, reason";
   const rows = (
     filter.sessionId === undefined
-      ? db.prepare("SELECT * FROM currency_ledger ORDER BY ts, id").all()
-      : db.prepare("SELECT * FROM currency_ledger WHERE session_id = ? ORDER BY ts, id").all(filter.sessionId)
+      ? db.prepare(`SELECT ${cols} FROM currency_ledger ORDER BY ts, id`).all()
+      : db.prepare(`SELECT ${cols} FROM currency_ledger WHERE session_id = ? ORDER BY ts, id`).all(filter.sessionId)
   ) as { event_id: number; ts: number; session_id: number | null; delta_copper: number; reason: string }[];
   return rows.map((r) => ({
     eventId: r.event_id,
@@ -99,7 +105,9 @@ export function getCurrency(db: Db, filter: { sessionId?: number } = {}): Curren
 
 export function getFactionChanges(db: Db, sessionId: number): FactionRecord[] {
   const rows = db
-    .prepare("SELECT * FROM faction_events WHERE session_id = ? ORDER BY ts, id")
+    .prepare(
+      "SELECT event_id, ts, session_id, faction_name, delta FROM faction_events WHERE session_id = ? ORDER BY ts, id",
+    )
     .all(sessionId) as {
     event_id: number;
     ts: number;

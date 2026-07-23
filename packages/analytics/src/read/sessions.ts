@@ -15,11 +15,15 @@ interface SessionRow {
   character_entity_id: number | null;
 }
 
+const SESSION_COLUMNS = "id, log_file_id, started_ts, ended_ts, character_entity_id";
+
 export function getSessions(db: Db, logFileId?: number): SessionRecord[] {
   const rows = (
     logFileId === undefined
-      ? db.prepare("SELECT * FROM sessions ORDER BY started_ts, id").all()
-      : db.prepare("SELECT * FROM sessions WHERE log_file_id = ? ORDER BY started_ts, id").all(logFileId)
+      ? db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ORDER BY started_ts, id`).all()
+      : db
+          .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE log_file_id = ? ORDER BY started_ts, id`)
+          .all(logFileId)
   ) as SessionRow[];
   return rows.map((r) => ({
     id: r.id,
@@ -31,7 +35,9 @@ export function getSessions(db: Db, logFileId?: number): SessionRecord[] {
 }
 
 export function getSessionSummary(db: Db, sessionId: number): SessionSummary | null {
-  const s = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
+  const s = db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).get(sessionId) as
+    | SessionRow
+    | undefined;
   if (s === undefined) return null;
 
   const lastTs =
