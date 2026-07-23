@@ -1,0 +1,89 @@
+{
+  "fixture": "eql-beta-2026-07/damage-shield.txt",
+  "events": [
+    {
+      "type": "damage_shield",
+      "target": "A cracked skeleton",
+      "owner": "Playerseven",
+      "amount": 2,
+      "element": "flames",
+      "ts": 1783711258000,
+      "raw": "[Fri Jul 10 19:20:58 2026] A cracked skeleton is burned by Playerseven's flames for 2 points of non-melee damage.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    },
+    {
+      "type": "damage_shield",
+      "target": "YOU",
+      "owner": "a necro neophyte",
+      "amount": 6,
+      "element": "flames",
+      "ts": 1783798530000,
+      "raw": "[Sat Jul 11 19:35:30 2026] YOU are burned by a necro neophyte's flames for 6 points of non-melee damage!",
+      "byteOffset": 114,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    },
+    {
+      "type": "damage_shield",
+      "target": "A skeletal excavator",
+      "owner": "YOUR",
+      "amount": 2,
+      "element": "flames",
+      "ts": 1783711247000,
+      "raw": "[Fri Jul 10 19:20:47 2026] A skeletal excavator is burned by YOUR flames for 2 points of non-melee damage.",
+      "byteOffset": 219,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    },
+    {
+      "type": "damage_shield",
+      "target": "YOU",
+      "owner": "Gynok Moltor",
+      "amount": 6,
+      "element": "thorns",
+      "ts": 1783796801000,
+      "raw": "[Sat Jul 11 19:06:41 2026] YOU are pierced by Gynok Moltor's thorns for 6 points of non-melee damage!",
+      "byteOffset": 326,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    },
+    {
+      "type": "damage_shield",
+      "target": "A skeletal excavator",
+      "owner": "Playerseven",
+      "amount": 5,
+      "element": "thorns",
+      "ts": 1783710038000,
+      "raw": "[Fri Jul 10 19:00:38 2026] A skeletal excavator is pierced by Playerseven's thorns for 5 points of non-melee damage.",
+      "byteOffset": 428,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    },
+    {
+      "type": "damage_shield",
+      "target": "A Nisch Mas Gnoll",
+      "owner": "Playertwentyfive",
+      "amount": 10,
+      "element": "frost",
+      "ts": 1784155999000,
+      "raw": "[Wed Jul 15 22:53:19 2026] A Nisch Mas Gnoll is tormented by Playertwentyfive's frost for 10 points of non-melee damage.",
+      "byteOffset": 545,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "damage-shield"
+    }
+  ]
+}

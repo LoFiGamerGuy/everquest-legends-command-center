@@ -1,0 +1,16 @@
+{
+  "fixture": "eql-beta-2026-07/self-damage.txt",
+  "events": [
+    {
+      "type": "self_damage",
+      "amount": 1,
+      "ts": 1783705591000,
+      "raw": "[Fri Jul 10 17:46:31 2026] You hurt yourself for 1 points.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "self-damage"
+    }
+  ]
+}

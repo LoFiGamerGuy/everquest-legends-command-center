@@ -1,0 +1,91 @@
+{
+  "fixture": "eql-beta-2026-07/heal.txt",
+  "events": [
+    {
+      "type": "heal",
+      "healer": "Playereight",
+      "target": "himself",
+      "amount": 88,
+      "uncappedAmount": 175,
+      "spell": "Skin like Diamond",
+      "ts": 1783704213000,
+      "raw": "[Fri Jul 10 17:23:33 2026] Playereight healed himself for 88 (175) hit points by Skin like Diamond.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    },
+    {
+      "type": "heal",
+      "healer": "Playernine",
+      "target": "himself",
+      "amount": 20,
+      "spell": "Courage",
+      "ts": 1783704230000,
+      "raw": "[Fri Jul 10 17:23:50 2026] Playernine healed himself for 20 hit points by Courage.",
+      "byteOffset": 100,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    },
+    {
+      "type": "heal",
+      "healer": "You",
+      "target": "Playerone",
+      "amount": 4,
+      "spell": "Lifetap",
+      "ts": 1783704464000,
+      "raw": "[Fri Jul 10 17:27:44 2026] You healed Playerone for 4 hit points by Lifetap.",
+      "byteOffset": 183,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    },
+    {
+      "type": "heal",
+      "healer": "You",
+      "target": "Playerone",
+      "amount": 1,
+      "uncappedAmount": 4,
+      "spell": "Lifetap",
+      "ts": 1783704645000,
+      "raw": "[Fri Jul 10 17:30:45 2026] You healed Playerone for 1 (4) hit points by Lifetap.",
+      "byteOffset": 260,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    },
+    {
+      "type": "heal",
+      "healer": "a necro neophyte pet",
+      "target": "itself",
+      "amount": 0,
+      "uncappedAmount": 4,
+      "spell": "Lifetap",
+      "ts": 1783709748000,
+      "raw": "[Fri Jul 10 18:55:48 2026] a necro neophyte pet healed itself for 0 (4) hit points by Lifetap.",
+      "byteOffset": 341,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    },
+    {
+      "type": "heal",
+      "healer": "Playerseven",
+      "target": "himself",
+      "amount": 5,
+      "ts": 1783710065000,
+      "raw": "[Fri Jul 10 19:01:05 2026] Playerseven healed himself for 5 hit points.",
+      "byteOffset": 436,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "heal"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+[Fri Jul 10 17:20:14 2026] A fragile pet punches YOU for 1 point of damage.
+[Fri Jul 10 17:27:07 2026] A coyote bites YOU for 1 point of damage.
+[Fri Jul 10 17:27:16 2026] A coyote bites YOU for 2 points of damage.
+[Fri Jul 10 17:20:14 2026] You punch a fragile pet for 1 point of damage. (Critical)
+[Fri Jul 10 17:20:23 2026] You kick a fragile pet for 2 points of damage.
+[Fri Jul 10 17:20:27 2026] You punch a fragile pet for 2 points of damage.
+[Sat Jul 11 00:15:07 2026] You slash a large rattlesnake for 10 points of damage. (Critical)
+[Fri Jul 10 18:35:31 2026] A parched zombie cleaves YOU for 13 points of damage.

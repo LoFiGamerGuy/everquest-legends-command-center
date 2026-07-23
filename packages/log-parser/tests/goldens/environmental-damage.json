@@ -1,0 +1,17 @@
+{
+  "fixture": "eql-beta-2026-07/environmental-damage.txt",
+  "events": [
+    {
+      "type": "environmental_damage",
+      "amount": 2,
+      "attacker": null,
+      "ts": 1783762469000,
+      "raw": "[Sat Jul 11 09:34:29 2026] You were hit by non-melee for 2 damage.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "environmental-damage"
+    }
+  ]
+}

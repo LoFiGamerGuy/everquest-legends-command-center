@@ -1,0 +1,8 @@
+[Fri Jul 10 17:19:27 2026] You begin casting Cavorting Bones.
+[Fri Jul 10 17:23:27 2026] Playereight begins casting Skin like Diamond.
+[Fri Jul 10 18:37:07 2026] Playerfourteen begins singing Selo's Accelerating Chorus.
+[Sat Jul 11 20:41:18 2026] Playerfifteen begins singing Jonthan's Whistling Warsong.
+[Fri Jul 10 17:27:44 2026] You regain your concentration and continue your casting.
+[Fri Jul 10 19:26:54 2026] A shadowknight regains concentration and continues casting.
+[Fri Jul 10 19:59:27 2026] A necro neophyte regains concentration and continues casting.
+[Thu Jul 16 22:37:11 2026] You begin singing Chant of Battle.

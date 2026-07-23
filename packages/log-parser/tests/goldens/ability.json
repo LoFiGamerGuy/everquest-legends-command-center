@@ -1,0 +1,53 @@
+{
+  "fixture": "eql-beta-2026-07/ability.txt",
+  "events": [
+    {
+      "type": "ability_purchase",
+      "ability": "Origin",
+      "costPoints": 0,
+      "ts": 1783703653000,
+      "raw": "[Fri Jul 10 17:14:13 2026] You have gained the ability \"Origin\" at a cost of 0 ability points.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "ability-purchase"
+    },
+    {
+      "type": "ability_purchase",
+      "ability": "Gather Party",
+      "costPoints": 0,
+      "ts": 1783703653000,
+      "raw": "[Fri Jul 10 17:14:13 2026] You have gained the ability \"Gather Party\" at a cost of 0 ability points.",
+      "byteOffset": 95,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "ability-purchase"
+    },
+    {
+      "type": "ability_purchase",
+      "ability": "Innate Regeneration 2",
+      "costPoints": 1,
+      "ts": 1783709148000,
+      "raw": "[Fri Jul 10 18:45:48 2026] You have improved Innate Regeneration 2 at a cost of 1 ability point.",
+      "byteOffset": 196,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "ability-improve"
+    },
+    {
+      "type": "ability_purchase",
+      "ability": "Innate Regeneration 4",
+      "costPoints": 2,
+      "ts": 1783722834000,
+      "raw": "[Fri Jul 10 22:33:54 2026] You have improved Innate Regeneration 4 at a cost of 2 ability points.",
+      "byteOffset": 293,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "ability-improve"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "fixture": "eql-beta-2026-07/rune-absorb.txt",
+  "events": [
+    {
+      "type": "rune_absorb",
+      "amount": 12,
+      "ts": 1783705591000,
+      "raw": "[Fri Jul 10 17:46:31 2026] You gain a rune for 12 points of absorption.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "rune-absorb"
+    }
+  ]
+}

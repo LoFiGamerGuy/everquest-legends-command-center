@@ -1,0 +1,6 @@
+[Fri Jul 10 17:23:33 2026] Playereight healed himself for 88 (175) hit points by Skin like Diamond.
+[Fri Jul 10 17:23:50 2026] Playernine healed himself for 20 hit points by Courage.
+[Fri Jul 10 17:27:44 2026] You healed Playerone for 4 hit points by Lifetap.
+[Fri Jul 10 17:30:45 2026] You healed Playerone for 1 (4) hit points by Lifetap.
+[Fri Jul 10 18:55:48 2026] a necro neophyte pet healed itself for 0 (4) hit points by Lifetap.
+[Fri Jul 10 19:01:05 2026] Playerseven healed himself for 5 hit points.

@@ -1,0 +1,38 @@
+{
+  "fixture": "eql-beta-2026-07/xp-level.txt",
+  "events": [
+    {
+      "type": "xp_gain",
+      "percentMilli": 4000,
+      "ts": 1783703951000,
+      "raw": "[Fri Jul 10 17:19:11 2026] You gain experience! (4.000%)",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "xp-gain"
+    },
+    {
+      "type": "xp_gain",
+      "percentMilli": 2315,
+      "ts": 1784158268000,
+      "raw": "[Wed Jul 15 23:31:08 2026] You gain party experience! (2.315%)",
+      "byteOffset": 57,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "xp-gain-party"
+    },
+    {
+      "type": "level_up",
+      "level": 2,
+      "ts": 1783705045000,
+      "raw": "[Fri Jul 10 17:37:25 2026] You have gained a level! Welcome to level 2!",
+      "byteOffset": 120,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "level-up"
+    }
+  ]
+}
