@@ -24,7 +24,12 @@
  * Resolver-snapshot persistence: the resolver snapshot is written in the SAME
  * transaction as each event batch + watermark advance (see resolver-store), so
  * attribution state (pet links, user assertions, evidence) is always exactly as
- * fresh as the watermark and survives a restart without re-reading the file.
+ * fresh as the watermark and survives a restart without re-reading the file. If a
+ * resume finds NO usable snapshot (absent/version-mismatched/corrupt) at a nonzero
+ * watermark, attribution state is rebuilt by replaying the already-persisted
+ * events through a fresh resolver (see buildResolver) so it never diverges. The
+ * parser's lastTs is likewise re-seeded from the last persisted event so a
+ * malformed-timestamp line right after the resume point keeps the uninterrupted ts.
  *
  * Explicitly OUT OF SCOPE (separate tickets): derived projections / sessions /
  * encounters / DPS rollups and events.source_entity_id/target_entity_id FK
@@ -42,11 +47,17 @@ import {
   type SqlDatabase,
   type Watermark,
 } from "@eqlcc/database";
-import type { LogEvent, RawUnknownEvent } from "@eqlcc/event-schema";
+import {
+  ENTITY_KINDS,
+  type EntityKind,
+  type LogEvent,
+  type RawUnknownEvent,
+} from "@eqlcc/event-schema";
 import {
   EntityResolver,
   LineSplitter,
   LogParser,
+  parseTimestamp,
   type RawLine,
   type RecognizerRegistry,
 } from "@eqlcc/log-parser";
@@ -156,6 +167,15 @@ export class IngestPipeline {
   private initialized = false;
   private mode: PipelineMode = "idle";
   private tailer: LogTailer | undefined;
+  /**
+   * Mirror of the parser's internal `lastTs` (the last valid timestamp seen).
+   * The parser cannot be seeded with it across a restart, so we track it here —
+   * seeded from the DB on resume — and patch malformed-timestamp lines in the
+   * cold resume prefix so their `ts` matches an uninterrupted run (HIGH 2).
+   */
+  private carryTs = 0;
+  /** The terminal error that halted this pipeline (live commit/consumer failure or truncation), if any. */
+  private lastErrorValue: Error | undefined;
 
   constructor(options: IngestPipelineOptions) {
     this.options = options;
@@ -191,19 +211,98 @@ export class IngestPipeline {
       ...(this.options.registry === undefined ? {} : { registry: this.options.registry }),
     });
 
-    const snapshot = loadResolverSnapshot(db, logFileId);
-    const resolver =
-      snapshot === undefined
-        ? EntityResolver.forLogFile(path.basename(this.options.logFile.path), logFileId)
-        : EntityResolver.fromSnapshot(snapshot);
-
     this.dbHandle = db;
     this.logFileIdValue = logFileId;
     this.startOffset = watermark.byteOffset;
     this.startSeq = watermark.seq;
     this.parser = parser;
-    this.resolverInstance = resolver;
+    this.resolverInstance = this.buildResolver(db, logFileId, watermark);
+    // Seed the ts-carry from the last persisted event so a malformed-ts line right
+    // after the resume point gets the same ts an uninterrupted replay would (HIGH 2).
+    this.carryTs = this.lastPersistedTs(db, logFileId);
     this.initialized = true;
+  }
+
+  /**
+   * Build the resolver for the resume point. Prefer the persisted snapshot; if
+   * there is no USABLE snapshot (absent, version-mismatched, or corrupt — see
+   * loadResolverSnapshot) AND we are resuming past offset 0, REBUILD attribution
+   * state by replaying the already-persisted events through a fresh resolver, so
+   * resume does not permanently diverge from an uninterrupted run (HIGH 1). A
+   * fresh DB (watermark 0) just starts a fresh resolver.
+   */
+  private buildResolver(db: SqlDatabase, logFileId: number, watermark: Watermark): EntityResolver {
+    const snapshot = loadResolverSnapshot(db, logFileId);
+    if (snapshot !== undefined) return EntityResolver.fromSnapshot(snapshot);
+    const resolver = EntityResolver.forLogFile(path.basename(this.options.logFile.path), logFileId);
+    if (watermark.seq > 0 || watermark.byteOffset > 0) {
+      this.rebuildResolverFromEvents(db, logFileId, resolver, watermark.seq);
+    }
+    return resolver;
+  }
+
+  /**
+   * Rebuild resolver attribution state by replaying every persisted event up to
+   * (and including) `throughSeq` in canonical (seq) order through `resolver`.
+   * Durable user corrections (entity_overrides) are applied FIRST so the replayed
+   * heuristics can never downgrade a user assertion (the resolver locks user
+   * calls; see EntityResolver.applyKind). A corrupt payload row is skipped rather
+   * than allowed to wedge init.
+   */
+  private rebuildResolverFromEvents(
+    db: SqlDatabase,
+    logFileId: number,
+    resolver: EntityResolver,
+    throughSeq: number,
+  ): void {
+    this.applyEntityOverrides(db, resolver);
+    const rows = db
+      .prepare("SELECT payload FROM events WHERE log_file_id = ? AND seq <= ? ORDER BY seq")
+      .all(logFileId, throughSeq) as { payload: string }[];
+    for (const row of rows) {
+      let event: LogEvent;
+      try {
+        event = JSON.parse(row.payload) as LogEvent;
+      } catch {
+        continue; // a corrupt stored payload must not wedge the rebuild
+      }
+      resolver.observe(event);
+    }
+  }
+
+  /**
+   * Apply durable user corrections (DATA_MODEL.md `entity_overrides`) to the
+   * resolver as locking user assertions. Entities are global (not per-file), so
+   * every override naming a known entity is applied. `merge_into` is an
+   * entity-merge projection concern (#20) and is skipped here.
+   */
+  private applyEntityOverrides(db: SqlDatabase, resolver: EntityResolver): void {
+    const rows = db
+      .prepare(
+        `SELECT eo.field AS field, eo.new_value AS newValue,
+                e.canonical_name AS name, owner_e.canonical_name AS ownerName
+         FROM entity_overrides eo
+         JOIN entities e ON e.id = eo.entity_id
+         LEFT JOIN entities owner_e
+           ON eo.field = 'owner' AND owner_e.id = CAST(eo.new_value AS INTEGER)
+         ORDER BY eo.id`,
+      )
+      .all() as { field: string; newValue: string; name: string; ownerName: string | null }[];
+    for (const row of rows) {
+      if (row.field === "kind" && (ENTITY_KINDS as readonly string[]).includes(row.newValue)) {
+        resolver.setEntityKind(row.name, row.newValue as EntityKind, { asserted: true });
+      } else if (row.field === "owner" && row.ownerName !== null) {
+        resolver.setPetOwner(row.name, row.ownerName, { asserted: true });
+      }
+    }
+  }
+
+  /** The `ts` of the last persisted event (== the parser's lastTs at the resume boundary), or 0. */
+  private lastPersistedTs(db: SqlDatabase, logFileId: number): number {
+    const row = db
+      .prepare("SELECT ts FROM events WHERE log_file_id = ? ORDER BY seq DESC LIMIT 1")
+      .get(logFileId) as { ts: number } | undefined;
+    return row?.ts ?? 0;
   }
 
   /** The open database handle (after init). */
@@ -229,6 +328,15 @@ export class IngestPipeline {
     return this.mode;
   }
 
+  /**
+   * The terminal error that halted this pipeline, or undefined. Set when live mode
+   * stops on a commit/consumer failure or when either mode halts on truncation, so
+   * a silent halt is inspectable even when no error callback was supplied (LOW 5).
+   */
+  get lastError(): Error | undefined {
+    return this.lastErrorValue;
+  }
+
   /** Read the persisted resume watermark from the database. */
   watermark(): Watermark {
     return getWatermark(this.db, this.logFileId);
@@ -243,7 +351,7 @@ export class IngestPipeline {
     this.ensureInit();
     this.assertMode("replay");
 
-    let splitter = new LineSplitter(this.startOffset, this.startSeq + 1);
+    const splitter = new LineSplitter(this.startOffset, this.startSeq + 1);
     let batches = 0;
     let linesProcessed = 0;
     let inserted = 0;
@@ -252,14 +360,26 @@ export class IngestPipeline {
     try {
       const size = fs.fstatSync(fd).size;
       // Truncation/rotation guard (ARCHITECTURE.md §5.2): a file shorter than our
-      // resume offset was truncated or replaced. Re-read from 0 (the tailer's rule).
-      let pos = this.startOffset;
-      if (size < pos) {
-        pos = 0;
-        this.resetForOffsetZero();
-        splitter = new LineSplitter(0, 1);
+      // resume offset was truncated or replaced. Replay HALTS and surfaces it,
+      // consistent with live mode (MEDIUM 3): silently resetting to offset 0 here
+      // would let the forward-only DB watermark (MAX(...)) lag a prefix-only
+      // resolver snapshot and later skip bytes. An explicit atomic rotation reset
+      // of watermark + snapshot together is #20 territory.
+      if (size < this.startOffset) {
+        const info: TruncationEvent = {
+          path: this.options.logFile.path,
+          previousWatermark: this.startOffset,
+          newLength: size,
+        };
+        this.lastErrorValue = new Error(
+          `@eqlcc/orchestrator: replay halted — ${info.path} shrank to ${size} bytes below the ` +
+            `resume offset ${this.startOffset} (truncation/rotation); rotation reset is #20.`,
+        );
+        this.options.onTruncation?.(info);
+        return { batches: 0, linesProcessed: 0, inserted: 0, watermark: this.watermark() };
       }
 
+      let pos = this.startOffset;
       const buffer = Buffer.allocUnsafe(this.replayChunkBytes);
       while (pos < size) {
         const want = Math.min(this.replayChunkBytes, size - pos);
@@ -303,6 +423,11 @@ export class IngestPipeline {
       // re-read offset 0 into a provenance-rejecting commit that would then wedge
       // on retry. Stopping here bumps the tailer generation so the current pass
       // does not proceed to re-read the reset offset.
+      this.lastErrorValue = new Error(
+        `@eqlcc/orchestrator: live tailing halted — ${info.path} was truncated/rotated ` +
+          `(shrank to ${info.newLength} bytes below watermark ${info.previousWatermark}); ` +
+          `rotation reset is #20.`,
+      );
       this.stop();
       this.options.onTruncation?.(info);
     });
@@ -312,6 +437,7 @@ export class IngestPipeline {
       // FAILING BATCH FOREVER with the watermark frozen (corruption-safe via
       // rollback, but an invisible liveness wedge). Stop to break the spin, then
       // surface it to the caller.
+      this.lastErrorValue = error;
       this.stop();
       this.options.onConsumerError?.(error);
     });
@@ -367,6 +493,20 @@ export class IngestPipeline {
       if (line.overflow === true && event.type !== "raw_unknown") {
         event = toRawUnknown(event);
       }
+      // ts-carry (HIGH 2): a line with no valid timestamp always becomes
+      // raw_unknown, and the parser assigns it the parser's internal lastTs —
+      // which starts cold (0) after a restart. We mirror lastTs ourselves (seeded
+      // from the DB at init) and patch the cold-prefix malformed-ts lines so their
+      // ts matches an uninterrupted replay byte-for-byte. Valid-ts lines advance
+      // the carry exactly as the parser advances its lastTs.
+      const parsedTs = parseTimestamp(event.raw);
+      if (parsedTs === null) {
+        if (event.type === "raw_unknown" && event.ts !== this.carryTs) {
+          event = { ...event, ts: this.carryTs };
+        }
+      } else {
+        this.carryTs = parsedTs;
+      }
       events.push(event);
       resolver.observe(event);
     }
@@ -398,20 +538,5 @@ export class IngestPipeline {
       );
     }
     this.mode = mode;
-  }
-
-  /** Reset parser seq + resolver to a fresh offset-0 state (truncation/rotation). */
-  private resetForOffsetZero(): void {
-    this.startOffset = 0;
-    this.startSeq = 0;
-    this.parser = new LogParser({
-      logFileId: this.logFileIdValue,
-      startSeq: 0,
-      ...(this.options.registry === undefined ? {} : { registry: this.options.registry }),
-    });
-    this.resolverInstance = EntityResolver.forLogFile(
-      path.basename(this.options.logFile.path),
-      this.logFileIdValue,
-    );
   }
 }

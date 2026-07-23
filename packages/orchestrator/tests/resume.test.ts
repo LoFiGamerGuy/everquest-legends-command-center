@@ -155,4 +155,75 @@ describe("IngestPipeline — durable resume determinism (issue #19 headline)", (
     expect(allEvents(db, reread.logFileId)).toEqual(eventsAfterFirst); // byte-identical
     expect(reread.watermark()).toEqual(watermarkAfterFirst); // watermark restored
   });
+
+  it("carries lastTs across the restart: a malformed-ts line right after the resume point gets the uninterrupted ts (HIGH 2)", () => {
+    // A three-line log: valid ts (L1), then a line with NO timestamp bracket (L2 →
+    // raw_unknown, whose ts must carry from L1), then valid ts (L3). Cut after L1
+    // so L2 is the FIRST line of the resumed stream (the cold-parser prefix).
+    const lines = [
+      "[Fri Jul 10 17:20:14 2026] You slash a large rattlesnake for 12 points of damage.",
+      "a stray line with no timestamp bracket",
+      "[Fri Jul 10 17:20:20 2026] You have slain a large rattlesnake!",
+    ];
+    const text = lines.map((l) => `${l}\n`).join("");
+    const cut = (lines[0] as string).length + 1; // one byte past L1's '\n'
+
+    // Baseline: uninterrupted replay. L2 (malformed ts) inherits L1's ts.
+    const { logPath: basePath, cleanup: bc } = writeTempLog(text);
+    cleanups.push(bc);
+    const baseDb = freshDb();
+    const basePipe = new IngestPipeline({ db: baseDb, logFile: logFileInput(basePath) });
+    basePipe.replay();
+    const baseEvents = allEvents(baseDb, basePipe.logFileId);
+    expect(baseEvents.map((e) => e.type)).toEqual(["melee_hit", "raw_unknown", "kill"]);
+    const baseL1Ts = baseEvents[0]?.ts as number;
+    const baseL2Ts = baseEvents[1]?.ts as number;
+    expect(baseL1Ts).toBeGreaterThan(0);
+    expect(baseL2Ts).toBe(baseL1Ts); // malformed-ts line inherited the prior valid ts
+
+    // Interrupted: crash after L1, then resume against the same DB + full file.
+    const { logPath, cleanup } = writeTempLog(text.slice(0, cut));
+    cleanups.push(cleanup);
+    const db = freshDb();
+    const before = new IngestPipeline({ db, logFile: logFileInput(logPath) });
+    before.replay();
+    expect(before.watermark().seq).toBe(1);
+
+    fs.writeFileSync(logPath, Buffer.from(text, "latin1"));
+    const after = new IngestPipeline({ db, logFile: logFileInput(logPath) });
+    after.replay();
+
+    const resumedEvents = allEvents(db, after.logFileId);
+    // The malformed-ts line (seq 2, first resumed line) got the SAME ts as the
+    // uninterrupted run — not 0 — so the whole event set is byte-identical.
+    expect(resumedEvents[1]?.ts).toBe(baseL2Ts);
+    expect(resumedEvents).toEqual(baseEvents);
+  });
+
+  it("replay HALTS and surfaces truncation instead of silently resetting to offset 0 (MEDIUM 3 / LOW 5)", () => {
+    const { logPath, cleanup } = writeTempLog(fullText());
+    cleanups.push(cleanup);
+    const db = freshDb();
+
+    const first = new IngestPipeline({ db, logFile: logFileInput(logPath) });
+    first.replay();
+    const watermarkAtEof = first.watermark();
+    const eventsAtEof = allEvents(db, first.logFileId);
+
+    // The file is truncated to below the persisted watermark (rotation/deletion).
+    fs.writeFileSync(logPath, Buffer.from(fullText().slice(0, cutOffset()), "latin1"));
+
+    // Resume via a fresh pipeline WITHOUT an onTruncation callback: the halt must
+    // still be inspectable through the lastError getter (LOW 5).
+    const resumed = new IngestPipeline({ db, logFile: logFileInput(logPath) });
+    const result = resumed.replay();
+
+    expect(result.batches).toBe(0);
+    expect(result.linesProcessed).toBe(0);
+    expect(resumed.lastError).toBeInstanceOf(Error);
+    expect(resumed.lastError?.message).toMatch(/truncat|rotat/i);
+    // Nothing was reset or re-ingested: watermark and events are unchanged.
+    expect(resumed.watermark()).toEqual(watermarkAtEof);
+    expect(allEvents(db, resumed.logFileId)).toEqual(eventsAtEof);
+  });
 });

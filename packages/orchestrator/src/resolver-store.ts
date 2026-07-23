@@ -91,13 +91,26 @@ export function saveResolverSnapshot(
   });
 }
 
+/** Minimal structural validation of a parsed snapshot (defends init from a corrupt row). */
+function isValidSnapshotShape(value: unknown): value is ResolverSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  return (
+    typeof s.version === "number" &&
+    typeof s.owner === "object" &&
+    s.owner !== null &&
+    Array.isArray(s.entities)
+  );
+}
+
 /**
- * Read the persisted resolver snapshot, or undefined if none is stored.
+ * Read the persisted resolver snapshot, or undefined if there is no USABLE one.
  *
- * Version gate: the snapshot is a REBUILDABLE cache, not a source of truth, so a
- * row written by a DIFFERENT snapshot schema is DISCARDED (returns undefined →
- * the caller starts a fresh resolver and rebuilds from events) rather than fed to
- * EntityResolver.fromSnapshot, which must never trust a stale-schema blob.
+ * The snapshot is a REBUILDABLE cache, not a source of truth. A row is DISCARDED
+ * (returns undefined → the caller starts fresh and rebuilds from events) when it
+ * is: absent; a DIFFERENT snapshot schema version (stale); unparseable JSON; or a
+ * parseable-but-malformed shape. It is NEVER allowed to throw (which would wedge
+ * init) and a malformed blob is NEVER fed to EntityResolver.fromSnapshot (MEDIUM 4).
  */
 export function loadResolverSnapshot(
   db: SqlDatabase,
@@ -108,5 +121,13 @@ export function loadResolverSnapshot(
     .get(logFileId) as { version: number; snapshot: string } | undefined;
   if (row === undefined) return undefined;
   if (row.version !== CURRENT_SNAPSHOT_VERSION) return undefined; // stale schema; discard & rebuild
-  return JSON.parse(row.snapshot) as ResolverSnapshot;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.snapshot);
+  } catch {
+    return undefined; // corrupt JSON; discard & rebuild (never wedge init)
+  }
+  if (!isValidSnapshotShape(parsed)) return undefined; // malformed shape; discard & rebuild
+  if (parsed.version !== CURRENT_SNAPSHOT_VERSION) return undefined; // body/column disagree; discard
+  return parsed;
 }

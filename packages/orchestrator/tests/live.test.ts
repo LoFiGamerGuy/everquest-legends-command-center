@@ -104,6 +104,8 @@ describe("IngestPipeline — live mode", () => {
 
     await waitFor(() => consumerErrCalls >= 1);
     expect(lastError).toBeInstanceOf(Error);
+    // Retained on the pipeline too, so a silent halt is inspectable (LOW 5).
+    expect(live.lastError).toBe(lastError);
 
     // Liveness: the pipeline stopped itself on the failing commit, so after many
     // more poll windows the error was delivered EXACTLY ONCE — it is not spinning
