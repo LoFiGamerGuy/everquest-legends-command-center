@@ -109,4 +109,10 @@ describe("sampleForDetection (§2.2)", () => {
     expect(a).toEqual(b);
     expect(a.slice(0, 100)).toEqual(lines.slice(0, 100));
   });
+
+  it("never exceeds maxLines even when headLines > maxLines (cap honored)", () => {
+    const lines = Array.from({ length: 1000 }, (_, i) => `line ${i}`);
+    const out = sampleForDetection(lines, { headLines: 800, maxLines: 100 });
+    expect(out.length).toBeLessThanOrEqual(100);
+  });
 });

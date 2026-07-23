@@ -13,6 +13,7 @@ import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";
 
 import {
   DialectRegistry,
+  LogParser,
   createDefaultDialectRegistry,
   RecognizerRegistry,
   allRules,
@@ -151,6 +152,55 @@ describe("DialectRegistry extends/override (§1)", () => {
         ],
       }),
     ).toThrow(/duplicate ruleId in declaration/);
+  });
+
+  it("stamps declaration rules to the dialect id; reused base rules keep theirs", () => {
+    const registry = new DialectRegistry();
+    registry.register({ id: DIALECT_EQL_BETA_2026_07, rules: allRules() });
+    // A declaration rule that OMITS dialectId defaults to beta at construction...
+    const omitted = regexRule({
+      ruleId: "synth-omit",
+      family: "synth",
+      frequencyRank: 100003,
+      regex: /^SYNTHOMIT$/,
+      build: () => ({ type: "system_message", kind: "o" }),
+    });
+    expect(omitted.dialectId).toBe(DIALECT_EQL_BETA_2026_07);
+
+    const derived = registry.register({
+      id: SYNTH_DIALECT,
+      extends: DIALECT_EQL_BETA_2026_07,
+      rules: [omitted],
+    });
+    // ...but is stamped to the derived dialect so its events carry correct provenance.
+    expect(derived.rules.find((r) => r.ruleId === "synth-omit")?.dialectId).toBe(SYNTH_DIALECT);
+    // A reused, unchanged base rule keeps beta (its wording is truly beta's).
+    expect(derived.rules.find((r) => r.ruleId === "melee-hit-third")?.dialectId).toBe(
+      DIALECT_EQL_BETA_2026_07,
+    );
+  });
+});
+
+describe("LogParser dialect tagging of fallthrough events (per-dialect diagnostics)", () => {
+  const unrecognized = "[Fri Jul 10 17:14:01 2026] totally unrecognized launch body xyz";
+
+  it("stamps raw_unknown and malformed-timestamp events with the parser's dialectId", () => {
+    const parser = new LogParser({ logFileId: 1, dialectId: "eql-launch-test" });
+    const unknown = parser.parseLine({ raw: unrecognized, byteOffset: 0, lineNo: 1 });
+    expect(unknown.type).toBe("raw_unknown");
+    expect(unknown.dialectId).toBe("eql-launch-test");
+    const malformed = parser.parseLine({ raw: "garbage no timestamp", byteOffset: 60, lineNo: 2 });
+    expect(malformed.type).toBe("raw_unknown");
+    expect(malformed.dialectId).toBe("eql-launch-test");
+  });
+
+  it("defaults to beta when no dialectId is given (byte-identical to before)", () => {
+    const unknown = new LogParser({ logFileId: 1 }).parseLine({
+      raw: unrecognized,
+      byteOffset: 0,
+      lineNo: 1,
+    });
+    expect(unknown.dialectId).toBe(DIALECT_EQL_BETA_2026_07);
   });
 });
 

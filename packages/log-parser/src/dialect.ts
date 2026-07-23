@@ -73,6 +73,14 @@ export interface DialectDefinition {
  * by `ruleId`, then each declaration rule set on top (same id overrides, new id
  * adds). Insertion order is preserved for stability; the RecognizerRegistry
  * re-sorts by `frequencyRank` and enforces uniqueness.
+ *
+ * Declaration rules are STAMPED to `def.id` so their emitted events carry the
+ * correct dialect provenance even when the rule omitted its dialectId
+ * (regexRule/exactRule default to beta). Reused base rules keep their own
+ * dialectId — an unchanged beta rule under a launch dialect still attributes its
+ * wording to beta, which is the truth. Stamping is a no-op (no clone) when the
+ * rule already carries `def.id`, so the default beta registration stays
+ * byte-identical.
  */
 function resolveRules(
   def: DialectDefinition,
@@ -88,7 +96,8 @@ function resolveRules(
       throw new Error(`dialect ${def.id}: duplicate ruleId in declaration: ${rule.ruleId}`);
     }
     declared.add(rule.ruleId);
-    byId.set(rule.ruleId, rule);
+    const stamped = rule.dialectId === def.id ? rule : { ...rule, dialectId: def.id };
+    byId.set(rule.ruleId, stamped);
   }
   return [...byId.values()];
 }

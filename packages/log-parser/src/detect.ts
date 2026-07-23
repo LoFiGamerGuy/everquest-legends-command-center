@@ -166,8 +166,9 @@ export function sampleForDetection(
   lines: readonly string[],
   options: SampleOptions = {},
 ): string[] {
-  const headLines = options.headLines ?? 1000;
   const maxLines = options.maxLines ?? 5000;
+  // Clamp head to the cap: headLines > maxLines must never exceed maxLines.
+  const headLines = Math.min(options.headLines ?? 1000, maxLines);
   if (lines.length <= maxLines) return [...lines];
 
   const head = lines.slice(0, headLines);
