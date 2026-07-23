@@ -16,3 +16,5 @@ HQ (the persistent orchestrator session) delegates bounded tasks to the agents d
 Agents MAY: create branches, commit, push branches, open/update draft PRs, respond to review.
 Agents MAY NOT: push to main, merge PRs, weaken branch protections, disable tests, commit secrets or unsanitized logs, or expand the compliance boundary.
 All merges require human approval.
+
+Review pipeline per substantive PR: independent Claude-family review agent (fresh context; re-runs gates and benchmarks; verdict + findings posted as a PR comment) → author fixes → re-review → cross-family static review via owner-side Codex/Gemini CLIs where available (ADR-010) → human merge decision.
