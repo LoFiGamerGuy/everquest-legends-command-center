@@ -121,6 +121,19 @@ const ADVANCE_WATERMARK_SQL = `UPDATE log_files
       last_read_at = @now
   WHERE id = @id`;
 
+/** Immutable provenance of an already-persisted event at a given byte offset. */
+const EXISTING_EVENT_SQL = `SELECT seq, raw, ts, type, dialect_id AS dialectId, rule_id AS ruleId
+  FROM events WHERE log_file_id = ? AND byte_offset = ?`;
+
+interface ExistingProvenance {
+  seq: number;
+  raw: string;
+  ts: number;
+  type: string;
+  dialectId: string;
+  ruleId: string | null;
+}
+
 /**
  * Append `events` for `logFileId` and advance its resume watermark, atomically.
  *
@@ -128,7 +141,13 @@ const ADVANCE_WATERMARK_SQL = `UPDATE log_files
  * a genuine byte-offset replay is idempotent, but ANY other constraint
  * violation — notably a duplicate `seq` at a different byte offset — THROWS and
  * rolls the whole batch back, so a line can never be silently dropped
- * (append-only / lossless, ARCHITECTURE.md §4).
+ * (append-only / lossless, ARCHITECTURE.md §4). When a byte-offset conflict
+ * suppresses a row, the persisted line's immutable provenance (`seq`, `raw`,
+ * `ts`, `type`, `dialect_id`, `rule_id`) must match the incoming event — a
+ * rewritten line at an existing offset is rejected, not silently absorbed.
+ *
+ * The watermark UPDATE must affect exactly one row; if it does not, the batch
+ * rolls back so events are never committed without their watermark.
  *
  * The watermark only advances when justified by THIS batch:
  * - an empty batch never advances it (a non-empty explicit watermark for an
@@ -165,11 +184,13 @@ export function ingestEvents(
   const target = justifiedWatermark(extent, watermark);
 
   const insert = db.prepare(INSERT_EVENT_SQL);
+  const existing = db.prepare(EXISTING_EVENT_SQL);
   const advance = db.prepare(ADVANCE_WATERMARK_SQL);
 
   const run = db.transaction((): number => {
     let inserted = 0;
     for (const event of events) {
+      const ruleId = event.ruleId ?? null;
       const info = insert.run({
         logFileId,
         seq: event.seq,
@@ -180,16 +201,48 @@ export function ingestEvents(
         value: primaryValue(event),
         payload: JSON.stringify(event),
         dialectId: event.dialectId,
-        ruleId: event.ruleId ?? null,
+        ruleId,
       });
-      inserted += info.changes;
+      if (info.changes === 1) {
+        inserted += 1;
+        continue;
+      }
+      // A byte-offset conflict suppressed the row (ON CONFLICT DO NOTHING). A
+      // true replay is idempotent, but the persisted line's immutable provenance
+      // MUST match: otherwise we'd silently absorb a rewritten line (and its
+      // watermark move) at that offset. Reject the whole batch instead.
+      const prior = existing.get(logFileId, event.byteOffset) as ExistingProvenance | undefined;
+      if (
+        prior === undefined ||
+        prior.seq !== event.seq ||
+        prior.raw !== event.raw ||
+        prior.ts !== event.ts ||
+        prior.type !== event.type ||
+        prior.dialectId !== event.dialectId ||
+        prior.ruleId !== ruleId
+      ) {
+        throw new Error(
+          `@eqlcc/database: byte offset ${event.byteOffset} in log file ${logFileId} already holds ` +
+            `a different event (seq ${prior?.seq ?? "?"} vs ${event.seq}); refusing to silently ` +
+            `overwrite append-only provenance.`,
+        );
+      }
     }
-    advance.run({
+    const advanced = advance.run({
       id: logFileId,
       byteOffset: target.byteOffset,
       seq: target.seq,
       now: Date.now(),
     });
+    // The invariant is events-and-watermark-together: if the watermark row did
+    // not update (missing file row, or a driver not enforcing what we expect),
+    // roll the whole batch back rather than commit events without a watermark.
+    if (advanced.changes !== 1) {
+      throw new Error(
+        `@eqlcc/database: watermark update affected ${advanced.changes} rows for log file ` +
+          `${logFileId} (expected 1); rolling back to preserve the events+watermark invariant.`,
+      );
+    }
     return inserted;
   });
 

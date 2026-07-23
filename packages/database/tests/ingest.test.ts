@@ -100,6 +100,27 @@ describe("ingestEvents", () => {
     expect(getWatermark(db, logFileId)).toEqual(before);
   });
 
+  it("throws when a byte_offset duplicate carries mismatched provenance and moves nothing", () => {
+    // BLOCKER (round 2): a row reusing an existing byte_offset but with a
+    // different seq/raw must be rejected loudly (append-only provenance), not
+    // silently absorbed while MAX(...) advances the watermark.
+    const { db, logFileId } = freshDb();
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, logFileId, events, watermark);
+    const before = getWatermark(db, logFileId);
+    const countBefore = eventCount(db, logFileId);
+
+    // byte 220 already holds seq 3; replay that offset with a higher seq and a
+    // longer raw line.
+    const rewritten = meleeHit(99, 220, {
+      raw: "You pierce a dune spiderling for 5 points of damage. [rewritten, much longer line]",
+    });
+    expect(() => ingestEvents(db, logFileId, [rewritten])).toThrow(/different event|provenance/i);
+
+    expect(eventCount(db, logFileId)).toBe(countBefore);
+    expect(getWatermark(db, logFileId)).toEqual(before);
+  });
+
   it("rejects a non-empty watermark for an empty batch and does not move the watermark", () => {
     // BLOCKER 2: nothing read cannot justify advancing the resume point.
     const { db, logFileId } = freshDb();
