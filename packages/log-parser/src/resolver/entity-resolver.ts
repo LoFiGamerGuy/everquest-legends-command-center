@@ -249,6 +249,12 @@ export class EntityResolver {
     evidenceType: LinkingEvidenceType,
     meta: SignalMeta = {},
   ): void {
+    // Runtime validation (the TS param type erases at runtime; a JS caller or a
+    // DB-replay cast could pass anything). `name_pattern` may only ever be KIND
+    // evidence — never an owner link — so a non-linking type is refused here
+    // rather than silently creating a bogus link. Defense-in-depth: the private
+    // recordOwnerEvidence also rejects name_pattern.
+    if (!isLinkingEvidence(evidenceType)) return;
     // Register the owner so a link never dangles (entity_links.owner_entity_id ->
     // entities(id) FK integrity for the DB layer, DATA_MODEL.md §3).
     const ownerRec = this.registerEntity(owner, meta);
@@ -357,8 +363,15 @@ export class EntityResolver {
       };
     }
     const rec = this.lookupOrClassify(name);
+    // Direction guard (mirrors observeDamageShield): a damage shield burning the
+    // log owner — "YOU are burned by <bearer>'s flames" — is ENEMY damage and
+    // must NEVER roll up to the owner, even if <bearer> happens to be an
+    // already-known pet (a stronger stored pet link must not reopen this).
+    const dsBurnsOwner =
+      event.type === "damage_shield" && this.canonicalId(event.target) === this.ownerCanonical;
     const link = rec.ownerLink;
     const rollsUp =
+      !dsBurnsOwner &&
       rec.kind === "pet" &&
       link !== undefined &&
       link.active &&
@@ -410,7 +423,15 @@ export class EntityResolver {
   static fromSnapshot(snapshot: ResolverSnapshot): EntityResolver {
     const resolver = new EntityResolver({ owner: snapshot.owner });
     for (const rec of snapshot.entities) {
-      resolver.entities.set(rec.canonical, cloneEntity(rec));
+      const clone = cloneEntity(rec);
+      // Sanitize: a persisted owner link whose best evidence is name_pattern
+      // violates the kind-only policy (e.g. written by an older/tampered snapshot).
+      // Restore it INACTIVE so it never surfaces an ownerId or rolls up — the
+      // evidence rows are retained for audit.
+      if (clone.ownerLink !== undefined && clone.ownerLink.evidenceType === "name_pattern") {
+        clone.ownerLink.active = false;
+      }
+      resolver.entities.set(clone.canonical, clone);
     }
     // The owner entity is restored from the snapshot above (or re-ensured here).
     resolver.ensureOwnerEntity();
@@ -542,6 +563,10 @@ export class EntityResolver {
     meta: SignalMeta,
     asserted: boolean,
   ): void {
+    // name_pattern is a KIND signal only and must NEVER form an owner link
+    // (policy, class docstring). No legitimate caller passes it here; reject any
+    // that slips through so the invariant holds even under a runtime cast.
+    if (evidenceType === "name_pattern") return;
     // Guarantee the owner entity exists so the link never dangles (FK integrity).
     if (!this.entities.has(ownerId)) this.registerEntity(ownerId);
     const row = evidenceRow(evidenceType, confidence, meta);
@@ -602,6 +627,15 @@ export class EntityResolver {
 }
 
 // ── Free helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Runtime allow-list for owner-link evidence via the public `recordOwnerSignal`.
+ * Only in-log heuristics that identify an owner qualify; `name_pattern` (kind
+ * evidence only) and `user_assertion` (use setPetOwner) are excluded.
+ */
+function isLinkingEvidence(value: unknown): value is LinkingEvidenceType {
+  return value === "pet_chatter" || value === "damage_shield_possessive";
+}
 
 /** Parsed `eqlog_<Character>_<server>.txt` file name. */
 export function parseLogFileName(fileName: string): { character: string; server: string } | null {

@@ -19,6 +19,7 @@ import {
   looksLikeGeneratedPetName,
   parseLogFileName,
 } from "../src/index.js";
+import type { LinkingEvidenceType, ResolverSnapshot } from "../src/index.js";
 
 // ── Event factory (fills provenance; deterministic seq) ──────────────────────
 
@@ -125,6 +126,22 @@ describe("EntityResolver — damage_shield_possessive (0.7)", () => {
     // best stays pet_chatter (0.95 > 0.7); DS is recorded in the audit trail.
     expect(link?.evidenceType).toBe("pet_chatter");
     expect(link?.evidence.map((e) => e.evidenceType)).toEqual(["pet_chatter", "damage_shield_possessive"]);
+  });
+
+  it("MAJOR (round-3): a DS burning YOU never rolls up, even if the bearer is a KNOWN pet", () => {
+    const r = new EntityResolver({ owner: { character: "Playerone" } });
+    r.observe(petChatter("Petone")); // Petone is a known pet (0.95 link -> Playerone)
+    // Genuine mob-target DS by the pet still rolls up.
+    const mobDs = damageShield("a greater skeleton", "Petone");
+    r.observe(mobDs);
+    expect(r.attributeSource(mobDs).rolledUp).toBe(true);
+    expect(r.attributeSource(mobDs).attributedId).toBe("Playerone");
+    // But a DS burning YOU with bearer=Petone is enemy damage — NEVER rolled up,
+    // despite the stronger stored pet link.
+    const youDs = damageShield("YOU", "Petone");
+    const a = r.attributeSource(youDs);
+    expect(a.rolledUp).toBe(false);
+    expect(a.attributedId).toBe("Petone");
   });
 
   it("MAJOR A(i): an enemy DS burning YOU is NOT your pet (npc, no link, no roll-up)", () => {
@@ -393,6 +410,57 @@ describe("EntityResolver — snapshot persistence (survives reload)", () => {
     const owner = r.get("Kitty")?.ownerLink?.ownerId;
     expect(owner).toBe("Playertwo");
     expect(r.list().some((e) => e.canonical === owner)).toBe(true);
+  });
+});
+
+describe("EntityResolver — name_pattern runtime guard (persistence bypass)", () => {
+  it("MAJOR (round-3): recordOwnerSignal refuses a name_pattern owner link at runtime", () => {
+    const r = new EntityResolver();
+    // Simulate a JS caller / DB-replay cast bypassing the TS param type.
+    r.recordOwnerSignal("Gab", "you", "name_pattern" as unknown as LinkingEvidenceType);
+    expect(r.resolve("Gab").ownerId).toBeUndefined();
+    const link = r.get("Gab")?.ownerLink;
+    expect(link === undefined || link.active === false).toBe(true);
+  });
+
+  it("MAJOR (round-3): a snapshot carrying a name_pattern owner link restores it INACTIVE", () => {
+    const tampered: ResolverSnapshot = {
+      version: 1,
+      owner: { character: null, server: null, logFileId: null },
+      entities: [
+        {
+          canonical: "you",
+          displayName: "You",
+          kind: "player",
+          classificationSource: "system",
+          kindConfidence: 1,
+          kindEvidence: [],
+        },
+        {
+          canonical: "Gab",
+          displayName: "Gab",
+          kind: "pet",
+          classificationSource: "heuristic",
+          kindConfidence: 0.4,
+          kindEvidence: [{ evidenceType: "name_pattern", confidence: 0.4 }],
+          ownerLink: {
+            ownerId: "you",
+            evidenceType: "name_pattern", // policy-violating best evidence
+            confidence: 0.4,
+            asserted: false,
+            active: true,
+            evidence: [{ evidenceType: "name_pattern", confidence: 0.4 }],
+            conflicts: [],
+          },
+        },
+      ],
+    };
+    const revived = EntityResolver.fromSnapshot(JSON.parse(JSON.stringify(tampered)));
+    expect(revived.get("Gab")?.ownerLink?.active).toBe(false);
+    expect(revived.resolve("Gab").ownerId).toBeUndefined();
+    expect(revived.attributeSource(meleeHit("Gab", "a skeleton")).rolledUp).toBe(false);
+    // Evidence rows are retained for audit.
+    expect(revived.get("Gab")?.ownerLink?.evidence).toHaveLength(1);
   });
 });
 
