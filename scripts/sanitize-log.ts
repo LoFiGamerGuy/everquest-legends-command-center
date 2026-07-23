@@ -5,9 +5,10 @@
  * Keeps mob/spell/zone/item names, numbers, and structure EXACTLY as-is (fixture policy, CONTRIBUTING.md).
  * Usage: node sanitize-log.ts input.txt --players Vess,Vessilia --pets Lenann > fixture.txt
  */
-const fs = require("node:fs");
+import fs from "node:fs";
 const args = process.argv.slice(2);
 const file = args[0];
+if (!file) { console.error("usage: sanitize-log.ts input.txt --players A,B --pets C"); process.exit(2); }
 const get = (flag: string) => (args.includes(flag) ? (args[args.indexOf(flag) + 1] ?? "").split(",").filter(Boolean) : []);
 const players = get("--players"), pets = get("--pets");
 let text = fs.readFileSync(file, "utf8");

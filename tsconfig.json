@@ -1,0 +1,5 @@
+{
+  // Solution-style root: `tsc -b` builds every referenced workspace project.
+  "files": [],
+  "references": [{ "path": "./packages/event-schema" }]
+}
