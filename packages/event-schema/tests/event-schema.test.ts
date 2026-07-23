@@ -84,6 +84,7 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     ...base(6, "[Wed Jul 16 20:15:06 2026] You were hit by non-melee for 4 damage."),
     type: "environmental_damage",
     amount: 4,
+    attacker: null,
   },
   heal: {
     ...base(7, "[Wed Jul 16 20:15:07 2026] You healed Playertwo for 141 (399) hit points by Greater Healing."),

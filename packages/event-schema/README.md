@@ -13,7 +13,11 @@ CLI, database layer, UI) without pulling anything along (ARCHITECTURE.md §2).
 - **Provenance on every event** (`EventBase`): `ts` (epoch ms), `raw` (the
   verbatim line), `byteOffset`, `lineNo`, `logFileId`, `dialectId`, `ruleId`.
   Nothing is ever emitted without its raw line and source offset (ADR-3);
-  `ruleId` is `null` only for `raw_unknown`.
+  `ruleId` is `null` only for `raw_unknown`. Note: `lineNo` (1-based line
+  number in the source file) is an intentional addition beyond the spec §5
+  base-field list — byte offsets are the canonical resume/idempotency key, but
+  line numbers make diagnostics, golden-file diffs, and fixture triage
+  human-navigable.
 - **Explicit unknowns, never guesses**: where the log gives no source (orphan
   DoT ticks, `X died.`, environmental damage) the field is explicitly `null`.
 - **Lossless integers**: XP is integer milli-percent (`1.019%` → `1019`), money

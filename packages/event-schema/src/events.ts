@@ -100,6 +100,9 @@ export interface DamageShieldEvent extends EventBase {
 export interface EnvironmentalDamageEvent extends EventBase {
   type: "environmental_damage";
   amount: number;
+  /** Always `null`: the line names no source — explicit unknown, never guessed
+   * (same pattern as DotTickEvent's unknown-source form). */
+  attacker: null;
 }
 
 /** §4.7 — "You healed Playertwo for 141 (399) hit points by Greater Healing." */
