@@ -55,6 +55,13 @@ export interface OwnerLink {
   confidence: number;
   /** True once a user assertion set this link; heuristics never override it. */
   asserted: boolean;
+  /**
+   * Whether the link is active for roll-up (DATA_MODEL.md `entity_links.active`).
+   * A user reclassifying the entity to a non-pet kind deactivates the link so
+   * stale heuristic evidence can never keep rolling damage up; the audit trail
+   * is retained (never deleted).
+   */
+  active: boolean;
   /** Every signal ever recorded for this pet, in observation order. */
   evidence: EvidenceRow[];
   /** Signals that disagreed with the surviving best link (kept for transparency). */

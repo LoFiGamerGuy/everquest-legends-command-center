@@ -101,17 +101,56 @@ describe("EntityResolver — pet_chatter (0.95, strongest in-log signal)", () =>
 });
 
 describe("EntityResolver — damage_shield_possessive (0.7)", () => {
-  it("a bare proper-name shield bearer links pet -> owner('you') at 0.7", () => {
+  it("a pet-shaped bearer whose shield burns the MOB links pet -> owner('you') at 0.7", () => {
+    // "a greater skeleton is burned by <pet>'s flames" — bearer is pet-shaped and
+    // the burned target is the enemy the pet tanks: a genuine pet damage shield.
     const r = new EntityResolver();
-    r.observe(damageShield("a greater skeleton", "Pettwo"));
+    r.observe(damageShield("a greater skeleton", GEN_PET));
 
-    const pettwo = r.resolve("Pettwo");
-    expect(pettwo.kind).toBe("pet");
-    expect(pettwo.ownerId).toBe("you");
-    const link = r.get("Pettwo")?.ownerLink;
+    const pet = r.resolve(GEN_PET);
+    expect(pet.kind).toBe("pet");
+    expect(pet.ownerId).toBe("you");
+    const link = r.get(GEN_PET)?.ownerLink;
     expect(link?.evidenceType).toBe("damage_shield_possessive");
     expect(link?.confidence).toBe(0.7);
     expect(link?.confidence).toBe(EVIDENCE_CONFIDENCE.damage_shield_possessive);
+  });
+
+  it("a bearer already known as a pet (via chatter) is reinforced by its DS on the mob", () => {
+    const r = new EntityResolver();
+    r.observe(petChatter("Petone")); // 0.95, kind=pet
+    r.observe(damageShield("a greater skeleton", "Petone")); // reinforce (not generator-shaped)
+    const link = r.get("Petone")?.ownerLink;
+    expect(link?.ownerId).toBe("you");
+    // best stays pet_chatter (0.95 > 0.7); DS is recorded in the audit trail.
+    expect(link?.evidenceType).toBe("pet_chatter");
+    expect(link?.evidence.map((e) => e.evidenceType)).toEqual(["pet_chatter", "damage_shield_possessive"]);
+  });
+
+  it("MAJOR A(i): an enemy DS burning YOU is NOT your pet (npc, no link, no roll-up)", () => {
+    // "YOU are burned by Cazicthule's flames for 60 ..." — you hit the mob; its
+    // shield burned you. The bearer is an ENEMY, never your pet.
+    const r = new EntityResolver({ owner: { character: "Playerone" } });
+    const enemyDs = damageShield("YOU", "Cazicthule");
+    r.observe(enemyDs);
+
+    const caz = r.resolve("Cazicthule");
+    expect(caz.kind).toBe("npc");
+    expect(caz.ownerId).toBeUndefined();
+    expect(r.list().some((e) => e.ownerLink !== undefined)).toBe(false);
+    const attribution = r.attributeSource(enemyDs);
+    expect(attribution.rolledUp).toBe(false);
+    expect(attribution.attributedId).toBe("Cazicthule");
+  });
+
+  it("MAJOR A(ii): an unqualified proper-name possessive on the mob makes NO pet link", () => {
+    // Another player's (or a named NPC's) DS on the mob: bearer is a proper name
+    // that is neither a known pet nor generator-shaped -> no owner link.
+    const r = new EntityResolver();
+    r.observe(damageShield("a greater skeleton", "Playertwo"));
+    expect(r.resolve("Playertwo").ownerId).toBeUndefined();
+    expect(r.get("Playertwo")?.ownerLink).toBeUndefined();
+    expect(r.list().some((e) => e.ownerLink !== undefined)).toBe(false);
   });
 
   it("YOUR shield is the log owner's own — attributes to you, no pet link", () => {
@@ -119,6 +158,9 @@ describe("EntityResolver — damage_shield_possessive (0.7)", () => {
     r.observe(damageShield("a Tesch Mas Gnoll", "YOUR"));
     expect(r.list().some((e) => e.ownerLink !== undefined)).toBe(false);
     expect(r.resolve("You").kind).toBe("player");
+    // Minor: case-insensitive self-possessive falls through to the same branch.
+    r.observe(damageShield("a Tesch Mas Gnoll", "your"));
+    expect(r.list().some((e) => e.ownerLink !== undefined)).toBe(false);
   });
 
   it("an article-led NPC possessive is guarded out (npc, no pet link)", () => {
@@ -225,17 +267,17 @@ describe("EntityResolver — conflicting owner signals", () => {
 describe("EntityResolver — user assertions (Verified Players / Verified Pets)", () => {
   it("setPetOwner (user_assertion 1.0) overrides a heuristic link and locks it", () => {
     const r = new EntityResolver();
-    r.observe(damageShield("a greater skeleton", "Pettwo")); // heuristic 0.7 -> owner "you"
-    r.setPetOwner("Pettwo", "Playerfour", { asserted: true });
+    r.observe(damageShield("a greater skeleton", GEN_PET)); // heuristic 0.7 -> owner "you"
+    r.setPetOwner(GEN_PET, "Playerfour", { asserted: true });
 
-    const link = r.get("Pettwo")?.ownerLink;
+    const link = r.get(GEN_PET)?.ownerLink;
     expect(link?.ownerId).toBe("Playerfour");
     expect(link?.evidenceType).toBe("user_assertion");
     expect(link?.confidence).toBe(1);
     expect(link?.asserted).toBe(true);
     // A later heuristic to a different owner must NOT override the locked link.
-    r.recordOwnerSignal("Pettwo", "you", "pet_chatter"); // 0.95, different owner
-    expect(r.get("Pettwo")?.ownerLink?.ownerId).toBe("Playerfour");
+    r.recordOwnerSignal(GEN_PET, "you", "pet_chatter"); // 0.95, different owner
+    expect(r.get(GEN_PET)?.ownerLink?.ownerId).toBe("Playerfour");
   });
 
   it("setEntityKind (user) overrides a heuristic kind and is not downgraded later", () => {
@@ -247,6 +289,22 @@ describe("EntityResolver — user assertions (Verified Players / Verified Pets)"
     r.recordOwnerSignal(GEN_PET, "you", "pet_chatter");
     expect(r.get(GEN_PET)?.classificationSource).toBe("user");
     expect(r.resolve(GEN_PET).kind).toBe("player");
+  });
+
+  it("MAJOR B: reclassifying a linked pet to a non-pet kind stops the roll-up (deactivates link)", () => {
+    const r = new EntityResolver({ owner: { character: "Playerone" } });
+    r.observe(petChatter("Petone")); // heuristic pet link -> Playerone
+    expect(r.attributeSource(meleeHit("Petone", "a skeleton")).rolledUp).toBe(true);
+
+    // User says Petone is actually a player (e.g. a same-named group member).
+    r.setEntityKind("Petone", "player", { asserted: true });
+    const a = r.attributeSource(meleeHit("Petone", "a skeleton"));
+    expect(a.rolledUp).toBe(false);
+    expect(a.attributedId).toBe("Petone");
+    expect(r.resolve("Petone").ownerId).toBeUndefined(); // owner hidden while inactive
+    // The link + evidence are retained for audit (never deleted), just inactive.
+    expect(r.get("Petone")?.ownerLink?.active).toBe(false);
+    expect(r.get("Petone")?.ownerLink?.evidence.length).toBeGreaterThan(0);
   });
 });
 
@@ -279,6 +337,33 @@ describe("EntityResolver — snapshot persistence (survives reload)", () => {
     // Locked link is still not overridable after reload.
     revived.recordOwnerSignal("Pettwo", "you", "pet_chatter");
     expect(revived.get("Pettwo")?.ownerLink?.ownerId).toBe("Playerone");
+
+    // MINOR C: every linked owner id must resolve to a real entity (FK integrity).
+    const ids = new Set(revived.list().map((e) => e.canonical));
+    for (const e of revived.list()) {
+      if (e.ownerLink !== undefined) expect(ids.has(e.ownerLink.ownerId)).toBe(true);
+    }
+  });
+
+  it("MAJOR B: a user non-pet reclassification keeps roll-up OFF across a snapshot reload", () => {
+    const r = new EntityResolver({ owner: { character: "Playerone" } });
+    r.observe(petChatter("Petone")); // heuristic pet link
+    r.setEntityKind("Petone", "npc", { asserted: true }); // deactivates the link
+
+    const revived = EntityResolver.fromSnapshot(JSON.parse(JSON.stringify(r.toSnapshot())));
+    expect(revived.resolve("Petone").kind).toBe("npc");
+    expect(revived.get("Petone")?.ownerLink?.active).toBe(false);
+    // Still no roll-up after reload; a stale link cannot resurrect booking damage.
+    expect(revived.attributeSource(meleeHit("Petone", "a skeleton")).rolledUp).toBe(false);
+  });
+
+  it("MINOR C: recordOwnerSignal registers the owner so the link never dangles", () => {
+    const r = new EntityResolver();
+    r.recordOwnerSignal("Kitty", "Playertwo", "pet_chatter");
+    expect(r.get("Playertwo")).toBeDefined();
+    const owner = r.get("Kitty")?.ownerLink?.ownerId;
+    expect(owner).toBe("Playertwo");
+    expect(r.list().some((e) => e.canonical === owner)).toBe(true);
   });
 });
 

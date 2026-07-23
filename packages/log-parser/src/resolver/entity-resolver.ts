@@ -13,9 +13,21 @@
  *
  * ── Evidence signals (type → weight → trigger → effect) ──────────────────────
  *  pet_chatter (0.95)  "<Pet> told you, '… Master.'"           pet -> owner("you"); kind=pet
- *  damage_shield_possessive (0.7)  "X is burned by <Pet>'s flames"  pet -> owner("you"); kind=pet
+ *  damage_shield_possessive (0.7)  "<mob> is burned by <Pet>'s flames" — bearer
+ *      pet-shaped/known-pet AND target is the mob (NOT you)     pet -> owner("you"); kind=pet
  *  name_pattern (0.4)  name matches the EQ pet-name generator   kind=pet HINT ONLY — no owner link
  *  user_assertion (1.0)  setEntityKind / setPetOwner            overrides + persists; always wins
+ *
+ * ── damage_shield direction + qualification guards (deliberate) ──────────────
+ * A possessive DS names the shield BEARER, not necessarily a pet. The bearer is
+ * the log owner's pet ONLY when BOTH hold: (a) the burned TARGET is the mob the
+ * pet tanks — NOT the log owner: "YOU are burned by <X>'s flames" means you HIT
+ * <X>, so <X> is an ENEMY, classified npc, never linked; and (b) the bearer is
+ * already known to be a pet or matches the generated-pet-name pattern — an
+ * unqualified proper name (a named NPC or another player) casting a DS is not
+ * your pet. Both guards prevent booking enemy/other-player DS damage onto the
+ * owner's parse (`YOUR` flames = the owner's own shield: attribute to you, no
+ * link).
  *
  * ── name_pattern policy (deliberate, documented) ─────────────────────────────
  * A generated-pet-name match tells you a name is pet-SHAPED — i.e. that it is
@@ -172,18 +184,40 @@ export class EntityResolver {
    */
   observeDamageShield(event: DamageShieldEvent, meta: SignalMeta = {}): void {
     this.registerEntity(event.target, meta);
-    if (event.owner === "YOUR") {
+
+    // `YOUR flames` — the logging character's own shield (any owner-cased token,
+    // not just the literal "YOUR", so we are not coupled to recognizer casing).
+    if (this.isOwnerToken(event.owner)) {
       this.ensureOwnerEntity();
       return;
     }
-    if (isArticleNpcName(event.owner)) {
-      const npc = this.registerEntity(event.owner, meta);
-      this.applyKind(npc, "npc", "heuristic", NPC_KIND_CONFIDENCE, undefined, meta);
+
+    const bearer = this.registerEntity(event.owner, meta);
+
+    // Direction guard: "X is burned by <bearer>'s flames" attributes to <bearer>
+    // ONLY when <bearer> is the shield-bearer being *attacked* (the mob's shield
+    // burns whoever hits it). When the burned target is the log owner —
+    // "YOU are burned by <bearer>'s flames" — the bearer is an ENEMY you hit,
+    // never your pet. Classify it as an NPC and form NO pet link / no roll-up.
+    if (this.canonicalId(event.target) === this.ownerCanonical) {
+      this.applyKind(bearer, "npc", "heuristic", NPC_KIND_CONFIDENCE, undefined, meta);
       return;
     }
-    const petRec = this.registerEntity(event.owner, meta);
+
+    // Qualification guard: a possessive shield bearer counts as a pet only when
+    // it is ALREADY known to be a pet (e.g. via pet_chatter) or its name matches
+    // the generated-pet-name pattern. An unqualified proper name (a named NPC or
+    // another player) casting a DS is NOT the log owner's pet — no link.
+    const bearerIsPetCandidate = bearer.kind === "pet" || looksLikeGeneratedPetName(bearer.canonical);
+    if (isArticleNpcName(event.owner)) {
+      this.applyKind(bearer, "npc", "heuristic", NPC_KIND_CONFIDENCE, undefined, meta);
+      return;
+    }
+    if (!bearerIsPetCandidate) return;
+
+    // Genuine pet damage-shield burning the mob it tanks -> pet -> owner("you").
     this.applyKind(
-      petRec,
+      bearer,
       "pet",
       "heuristic",
       EVIDENCE_CONFIDENCE.damage_shield_possessive,
@@ -191,7 +225,7 @@ export class EntityResolver {
       meta,
     );
     this.recordOwnerEvidence(
-      petRec,
+      bearer,
       this.ownerCanonical,
       "damage_shield_possessive",
       EVIDENCE_CONFIDENCE.damage_shield_possessive,
@@ -215,9 +249,12 @@ export class EntityResolver {
     evidenceType: LinkingEvidenceType,
     meta: SignalMeta = {},
   ): void {
+    // Register the owner so a link never dangles (entity_links.owner_entity_id ->
+    // entities(id) FK integrity for the DB layer, DATA_MODEL.md §3).
+    const ownerRec = this.registerEntity(owner, meta);
     const petRec = this.registerEntity(pet, meta);
     this.applyKind(petRec, "pet", "heuristic", EVIDENCE_CONFIDENCE[evidenceType], evidenceType, meta);
-    this.recordOwnerEvidence(petRec, this.canonicalId(owner), evidenceType, EVIDENCE_CONFIDENCE[evidenceType], meta, false);
+    this.recordOwnerEvidence(petRec, ownerRec.canonical, evidenceType, EVIDENCE_CONFIDENCE[evidenceType], meta, false);
   }
 
   // ── User corrections (kauffman12 "Verified Players / Verified Pets") ─────────
@@ -232,6 +269,12 @@ export class EntityResolver {
     this.applyKind(rec, kind, "user", EVIDENCE_CONFIDENCE.user_assertion, "user_assertion", {
       source: "user assertion",
     });
+    // Reclassifying to a non-pet kind must stop stale roll-ups: deactivate the
+    // owner link (kept for audit, never rolled up while inactive). Re-asserting
+    // pet re-activates any existing link.
+    if (rec.ownerLink !== undefined) {
+      rec.ownerLink.active = kind === "pet";
+    }
     return rec;
   }
 
@@ -273,10 +316,13 @@ export class EntityResolver {
       return { canonical, kind: "unknown", confidence: 0, evidence: [] };
     }
     const evidence = [...rec.kindEvidence, ...(rec.ownerLink?.evidence ?? [])];
+    // Only surface an owner when the link is active (a user reclassification to a
+    // non-pet kind deactivates it; the evidence stays for the audit trail).
+    const activeLink = rec.ownerLink !== undefined && rec.ownerLink.active ? rec.ownerLink : undefined;
     return {
       canonical: rec.canonical,
       kind: rec.kind,
-      ...(rec.ownerLink === undefined ? {} : { ownerId: rec.ownerLink.ownerId }),
+      ...(activeLink === undefined ? {} : { ownerId: activeLink.ownerId }),
       confidence: rec.kindConfidence,
       evidence,
     };
@@ -284,11 +330,17 @@ export class EntityResolver {
 
   /**
    * The entity a combat event's contribution should be booked to for stats. A
-   * pet rolls up to its owner via `attributedId` when a link at/above
-   * ATTRIBUTION_MIN_CONFIDENCE exists; otherwise the acting entity owns its own
-   * contribution. `confidence` is ALWAYS returned so downstream never treats a
-   * guess as fact. Events with no in-log source (environmental / unknown-source
-   * DoT) attribute to an explicit `unknown`.
+   * pet rolls up to its owner via `attributedId` ONLY when the actor is currently
+   * classified `pet` AND holds an ACTIVE link at/above ATTRIBUTION_MIN_CONFIDENCE;
+   * otherwise the acting entity owns its own contribution. So a user
+   * reclassifying a pet to player/npc (which deactivates the link) immediately
+   * stops the roll-up — a stale heuristic link can never keep booking damage on
+   * the owner. `confidence` is ALWAYS returned so downstream never treats a guess
+   * as fact. Events with no in-log source (environmental / unknown-source DoT)
+   * attribute to an explicit `unknown`.
+   *
+   * This is a pure query: it does NOT mutate the registry (unseen names are
+   * classified transiently, never inserted — ingestion happens only via observe).
    */
   attributeSource(event: LogEvent): Attribution {
     const name = sourceNameOf(event);
@@ -302,9 +354,15 @@ export class EntityResolver {
         evidence: [],
       };
     }
-    const rec = this.registerEntity(name);
+    const rec = this.lookupOrClassify(name);
     const link = rec.ownerLink;
-    if (link !== undefined && link.confidence >= ATTRIBUTION_MIN_CONFIDENCE && link.ownerId !== rec.canonical) {
+    const rollsUp =
+      rec.kind === "pet" &&
+      link !== undefined &&
+      link.active &&
+      link.confidence >= ATTRIBUTION_MIN_CONFIDENCE &&
+      link.ownerId !== rec.canonical;
+    if (rollsUp && link !== undefined) {
       return {
         sourceId: rec.canonical,
         attributedId: link.ownerId,
@@ -385,6 +443,17 @@ export class EntityResolver {
     if (lower === "you" || lower === "your") return true;
     const character = this.ownerIdentity.character;
     return character !== null && lower === character.toLowerCase();
+  }
+
+  /**
+   * Read-only lookup for the query path: return the stored record, or a
+   * transient classification for an unseen name WITHOUT inserting it. Keeps
+   * `attributeSource`/`resolve` free of the ingestion side effects of
+   * `registerEntity` (the ingestion-vs-query boundary the class draws).
+   */
+  private lookupOrClassify(name: string): EntityRecord {
+    const canonical = this.canonicalId(name);
+    return this.entities.get(canonical) ?? this.classifyNew(canonical, name, {});
   }
 
   /** Register (or touch) an entity, applying first-seen kind classification. */
@@ -471,6 +540,8 @@ export class EntityResolver {
     meta: SignalMeta,
     asserted: boolean,
   ): void {
+    // Guarantee the owner entity exists so the link never dangles (FK integrity).
+    if (!this.entities.has(ownerId)) this.registerEntity(ownerId);
     const row = evidenceRow(evidenceType, confidence, meta);
     const link = rec.ownerLink;
     if (link === undefined) {
@@ -479,11 +550,15 @@ export class EntityResolver {
         evidenceType,
         confidence,
         asserted,
+        active: true,
         evidence: [row],
         conflicts: [],
       };
       return;
     }
+    // A fresh signal re-activates a link the user had deactivated only if it is a
+    // user assertion (an entity re-asserted as a pet); heuristics never revive it.
+    if (asserted) link.active = true;
     link.evidence.push(row);
 
     let becomesBest: boolean;
