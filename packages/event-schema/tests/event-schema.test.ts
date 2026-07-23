@@ -64,6 +64,7 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     amount: 3,
     school: "fire",
     spell: "Burst of Flame",
+    modifiers: [],
   },
   dot_tick: {
     ...base(4, "[Wed Jul 16 20:15:04 2026] A wan ghoul knight has taken 44 damage from your Blood Siphon Strike."),
@@ -85,6 +86,11 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     type: "environmental_damage",
     amount: 4,
     attacker: null,
+  },
+  self_damage: {
+    ...base(31, "[Wed Jul 16 20:15:31 2026] You hurt yourself for 5 points."),
+    type: "self_damage",
+    amount: 5,
   },
   heal: {
     ...base(7, "[Wed Jul 16 20:15:07 2026] You healed Playertwo for 141 (399) hit points by Greater Healing."),
@@ -143,6 +149,12 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     quantity: 2,
     totalCopper: 18,
   },
+  coin_gain: {
+    ...base(32, "[Wed Jul 16 20:15:32 2026] You receive 1 silver and 8 copper from the corpse."),
+    type: "coin_gain",
+    totalCopper: 18,
+    source: "corpse",
+  },
   zone_enter: {
     ...base(16, "[Wed Jul 16 20:15:16 2026] You have entered The Northern Desert of Ro."),
     type: "zone_enter",
@@ -176,10 +188,12 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     ...base(22, "[Wed Jul 16 20:15:22 2026] You regain your concentration and continue your casting."),
     type: "cast_resume",
   },
-  // RESERVED (UNVERIFIED — no fixture, no recognizer; empty raw by policy).
   cast_interrupt: {
-    ...base(23, ""),
+    ...base(23, "[Wed Jul 16 20:15:23 2026] Your Light Healing spell is interrupted."),
     type: "cast_interrupt",
+    caster: "You",
+    spell: "Light Healing",
+    reason: "interrupted",
   },
   faction_change: {
     ...base(24, "[Wed Jul 16 20:15:24 2026] Your faction standing with New Sebilisian Expedition has been adjusted by 100."),
@@ -187,10 +201,11 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     faction: "New Sebilisian Expedition",
     delta: 100,
   },
-  // RESERVED (UNVERIFIED — no fixture, no recognizer; empty raw by policy).
   skill_up: {
-    ...base(25, ""),
+    ...base(25, "[Wed Jul 16 20:15:25 2026] You have become better at Meditate! (2)"),
     type: "skill_up",
+    skill: "Meditate",
+    value: 2,
   },
   pet_chatter: {
     ...base(26, "[Wed Jul 16 20:15:26 2026] Petone told you, 'Attacking a dune spiderling Master.'"),
@@ -207,16 +222,29 @@ const samples: { [K in EventType]: EventOfType<K> } = {
     channelNumber: 2,
     message: "...",
   },
+  spell_emote: {
+    ...base(33, "[Wed Jul 16 20:15:33 2026] A greater skeleton staggers."),
+    type: "spell_emote",
+    subject: "A greater skeleton",
+    emote: "staggers.",
+  },
+  system_message: {
+    ...base(34, "[Wed Jul 16 20:15:34 2026] Auto attack is on."),
+    type: "system_message",
+    kind: "auto_attack_on",
+  },
   log_toggle: {
     ...base(28, "[Wed Jul 16 20:15:28 2026] Logging to 'eqlog.txt' is now *ON*."),
     type: "log_toggle",
     file: "eqlog.txt",
     state: "ON",
   },
-  // RESERVED (UNVERIFIED — no fixture, no recognizer; empty raw by policy).
   spell_resist: {
-    ...base(29, ""),
+    ...base(29, "[Wed Jul 16 20:15:29 2026] You resist a large plague rat's Plague Rat Disease!"),
     type: "spell_resist",
+    caster: "a large plague rat",
+    target: "You",
+    spell: "Plague Rat Disease",
   },
   raw_unknown: {
     ts: 1752900030000,
@@ -242,6 +270,7 @@ function familyOf(event: LogEvent): string {
     case "dot_tick":
     case "damage_shield":
     case "environmental_damage":
+    case "self_damage":
       return "damage";
     case "heal":
     case "rune_absorb":
@@ -256,6 +285,7 @@ function familyOf(event: LogEvent): string {
       return "progression";
     case "loot_item":
     case "loot_auto_sell":
+    case "coin_gain":
       return "loot";
     case "zone_enter":
       return "world";
@@ -273,6 +303,10 @@ function familyOf(event: LogEvent): string {
     case "pet_chatter":
     case "chat_message":
       return "chat";
+    case "spell_emote":
+      return "emote";
+    case "system_message":
+      return "system";
     case "log_toggle":
       return "meta";
     case "raw_unknown":
@@ -285,10 +319,10 @@ function familyOf(event: LogEvent): string {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("event type enum", () => {
-  it("has exactly the 30 types of LOG_FORMAT_SPEC.md §5, no duplicates", () => {
+  it("has the 30 types of LOG_FORMAT_SPEC.md §5 plus 4 corpus-discovered families", () => {
     expect(eventTypesComplete).toBe(true);
-    expect(EVENT_TYPES).toHaveLength(30);
-    expect(new Set(EVENT_TYPES).size).toBe(30);
+    expect(EVENT_TYPES).toHaveLength(34);
+    expect(new Set(EVENT_TYPES).size).toBe(34);
   });
 
   it("constructs one event of every type, each carrying full provenance", () => {
@@ -312,11 +346,11 @@ describe("event type enum", () => {
     expect(familyOf(samples.raw_unknown)).toBe("unknown");
   });
 
-  it("marks exactly cast_interrupt, skill_up, spell_resist as reserved (spec §5 U)", () => {
+  it("has no reserved types left: cast_interrupt, skill_up, spell_resist verified by corpus fixtures", () => {
     const reserved = EVENT_TYPES.filter((t) => EVENT_TYPE_STATUS[t] === "reserved").sort();
-    expect(reserved).toEqual(["cast_interrupt", "skill_up", "spell_resist"]);
+    expect(reserved).toEqual([]);
     expect(EVENT_TYPE_STATUS.raw_unknown).toBe("always");
-    expect(EVENT_TYPES.filter((t) => EVENT_TYPE_STATUS[t] === "verified")).toHaveLength(26);
+    expect(EVENT_TYPES.filter((t) => EVENT_TYPE_STATUS[t] === "verified")).toHaveLength(33);
   });
 
   it("raw_unknown has ruleId null; recognized events carry a rule id", () => {
