@@ -3,7 +3,7 @@
  * Anonymize an EQL log excerpt for use as a public fixture.
  * Replaces supplied character/pet names with Playerone/Petone... and the log owner with "Youchar".
  * Keeps mob/spell/zone/item names, numbers, and structure EXACTLY as-is (fixture policy, CONTRIBUTING.md).
- * Usage: node sanitize-log.ts input.txt --players Vess,Vessilia --pets Lenann > fixture.txt
+ * Usage: node sanitize-log.ts input.txt --players Alice,Bob --pets Fido > fixture.txt
  */
 import fs from "node:fs";
 const args = process.argv.slice(2);

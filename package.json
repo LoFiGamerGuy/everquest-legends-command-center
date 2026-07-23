@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
