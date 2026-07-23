@@ -1,0 +1,16 @@
+{
+  "fixture": "eql-beta-2026-07/raw-unknown.txt",
+  "events": [
+    {
+      "type": "raw_unknown",
+      "ts": 1784654498000,
+      "seq": 1,
+      "raw": "[Tue Jul 21 17:21:38 2026] A fire beetle chitters and buzzes its translucent wings in anticipation of battle.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": null
+    }
+  ]
+}

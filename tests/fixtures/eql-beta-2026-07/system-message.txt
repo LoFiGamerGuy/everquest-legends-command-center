@@ -1,0 +1,52 @@
+[Fri Jul 10 17:20:14 2026] Auto attack is on.
+[Fri Jul 10 17:38:52 2026] You are stunned!
+[Sat Jul 11 23:27:15 2026] Insufficient Mana to cast this spell!
+[Fri Jul 10 17:20:38 2026] Your target is too far away, get closer!
+[Fri Jul 10 17:21:41 2026] LOADING, PLEASE WAIT...
+[Fri Jul 10 17:27:39 2026] You mend your wounds and heal some damage.
+[Fri Jul 10 18:19:33 2026] You can use the ability Origin again in 18 minute(s) 0 seconds.
+[Fri Jul 10 17:31:39 2026] Beginning to memorize Cavorting Bones...
+[Fri Jul 10 17:31:51 2026] You have finished memorizing Cavorting Bones.
+[Fri Jul 10 17:31:39 2026] You forget Cavorting Bones.
+[Fri Jul 10 17:17:42 2026] Targeted (Merchant): Dougina
+[Fri Jul 10 19:14:27 2026] Targeted (NPC): a decaying skeleton
+[Mon Jul 13 23:04:41 2026] You activate Asp Venom.
+[Sun Jul 12 17:52:01 2026] Spell set combat1 loaded.
+[Fri Jul 10 17:53:32 2026] You have gained an ability point!  You now have 1 ability point.
+[Fri Jul 10 22:55:14 2026] Your total time entitled on this account is approximately 0 years, 24 days.
+[Fri Jul 10 17:17:42 2026] Stand close to and right click on the Merchant to begin a transaction.
+[Mon Jul 20 20:19:05 2026] You could not give item Wooden Shield +2 to your pet
+[Fri Jul 10 23:16:38 2026] Playertwentythree was partially successful in capturing a sturdy skeleton's attention.
+[Sat Jul 11 19:53:10 2026] Beginning to scribe True North...
+[Sat Jul 11 19:53:10 2026] You have finished scribing True North.
+[Fri Jul 10 17:32:42 2026] You have been granted the following spell: Minor Healing.
+[Fri Jul 10 17:21:05 2026] You have successfully merged two items together to create a new item: Boots of the Long Road +1
+[Fri Jul 10 17:22:54 2026] You successfully destroyed 1 Letter For Doug.
+[Fri Jul 10 17:32:43 2026] You have gained the ability to use 1H Slashing.
+[Fri Jul 10 17:19:09 2026] You offered 1 Package for Old Doug to Old Doug.
+[Fri Jul 10 17:19:11 2026] You complete the trade with Old Doug.
+[Sun Jul 12 00:55:00 2026] It will take about 25 more seconds to prepare your camp.
+[Fri Jul 10 17:25:53 2026] You have completed achievement: The Northern Desert of Ro Traveler
+[Fri Jul 10 17:14:03 2026] Channels: 1=NewPlayers(117), 2=General(241)
+[Fri Jul 10 17:15:52 2026] You will now use Kick while auto attacking.
+[Fri Jul 10 17:17:46 2026] You purchased 1 Package for Old Doug from Dougina for .
+[Sun Jul 12 23:48:29 2026] Your pet's Haze spell has worn off.
+[Fri Jul 10 17:38:57 2026] Your Flash of Light spell has worn off of a dune spiderling.
+[Mon Jul 13 23:01:52 2026] You have learned Asp Venom!
+[Mon Jul 13 23:01:52 2026] You have been granted the following discipline: Asp Venom.
+[Fri Jul 10 22:55:14 2026] This session: 30 minutes and 26 seconds
+[Fri Jul 10 22:55:14 2026] Total time playing Playerone: 3 hours and 51 minutes
+[Fri Jul 10 22:55:14 2026] Playerone's birthdate: Friday, July 10, 2026 17:13:26.
+[Fri Jul 10 22:55:14 2026] Playerone's age: 0 years (Earth time). 0 years (Norrathian time).
+[Sat Jul 11 20:01:45 2026] Player Playerone creating instance Befallen 463.
+[Sat Jul 11 20:01:45 2026] Befallen is now available to you.
+[Wed Jul 15 07:20:48 2026] Only Equipment items may be placed in the Equipment key ring.
+[Fri Jul 10 18:52:23 2026] You cannot be bandaged past 70 percent of your max hit points. 
+[Fri Jul 10 18:52:23 2026] You cannot bandage your target past 70 percent of their hit points. 
+[Sun Jul 12 17:24:30 2026] Spell set combat1 saved.
+[Fri Jul 10 19:40:04 2026] You will now use Round Kick instead of Kick while attacking.
+[Fri Jul 10 18:46:04 2026] You need to wait 37 more seconds before you can Mend again.
+[Fri Jul 10 23:16:33 2026] Playertwentythree failed to taunt a sturdy skeleton.
+[Fri Jul 10 23:19:50 2026] Playertwentyfour has captured a cracked skeleton's attention!
+[Sun Jul 19 08:41:18 2026] Channel General was too full to join
+[Fri Jul 10 17:19:32 2026] You are missing Bone Chips.

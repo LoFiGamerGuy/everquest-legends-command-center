@@ -1,0 +1,5 @@
+[Tue Jul 14 05:59:36 2026] A giant spider has taken 16 damage from your Blood Siphon Strike.
+[Fri Jul 10 17:38:45 2026] You have taken 1 damage from Feeble Poison by a dune spiderling.
+[Fri Jul 10 18:55:40 2026] Playersix has taken 1 damage from Disease Cloud by a necro neophyte.
+[Fri Jul 10 18:57:32 2026] Asaka L`Rei has taken 8 damage from Leech by Playersix.
+[Fri Jul 10 20:11:33 2026] Playertwelve has taken 28 damage by Heat Blood.

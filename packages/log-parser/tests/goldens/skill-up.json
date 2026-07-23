@@ -1,0 +1,44 @@
+{
+  "fixture": "eql-beta-2026-07/skill-up.txt",
+  "events": [
+    {
+      "type": "skill_up",
+      "skill": "1H Slashing",
+      "value": 1,
+      "ts": 1783704763000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:32:43 2026] You have become better at 1H Slashing! (1)",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "skill-up"
+    },
+    {
+      "type": "skill_up",
+      "skill": "Archery",
+      "value": 1,
+      "ts": 1783704763000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:32:43 2026] You have become better at Archery! (1)",
+      "byteOffset": 70,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "skill-up"
+    },
+    {
+      "type": "skill_up",
+      "skill": "Hand to Hand",
+      "value": 11,
+      "ts": 1783705094000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 17:38:14 2026] You have become better at Hand to Hand! (11)",
+      "byteOffset": 136,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "skill-up"
+    }
+  ]
+}

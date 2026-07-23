@@ -26,6 +26,16 @@ import type { DialectId } from "./enums.js";
 export interface EventBase {
   /** Unix epoch milliseconds, derived from the line's local-time asctime stamp. */
   ts: number;
+  /**
+   * Per-file monotonic emission ordinal (1-based), assigned by the parser in
+   * line order. `ts` is second-resolution and same-second events are common:
+   * `(logFileId, seq)` is the CANONICAL total order for the event stream —
+   * downstream projections must never order by `ts` alone (LOG_FORMAT_SPEC.md
+   * §2 "monotonic per-second sequence"). On tailer resume, `seq` is restored
+   * alongside the byte-offset watermark (same transaction, DATA_MODEL.md §2);
+   * `(logFileId, byteOffset)` remains an equivalent persistent order key.
+   */
+  seq: number;
   /** Original line, verbatim, minus the line terminator. */
   raw: string;
   /** Offset of the line's first byte in the source file. */
@@ -72,9 +82,11 @@ export interface SpellDamageEvent extends EventBase {
   attacker: string;
   target: string;
   amount: number;
-  /** Damage school (verified: fire, magic). */
+  /** Damage school (corpus-verified: magic, disease, cold, poison, fire, unresistable, physical). */
   school: string;
   spell: string;
+  /** Verbatim trailing annotations, e.g. `Critical` (corpus-verified). Empty when none. */
+  modifiers: string[];
 }
 
 /** §4.4 — "A wan ghoul knight has taken 44 damage from your Blood Siphon Strike." */
@@ -91,9 +103,17 @@ export interface DotTickEvent extends EventBase {
 export interface DamageShieldEvent extends EventBase {
   type: "damage_shield";
   target: string;
-  /** Possessive owner — pet/player attribution evidence (`damage_shield_possessive`). */
+  /**
+   * Possessive owner — pet/player attribution evidence (`damage_shield_possessive`).
+   * `YOUR` (verbatim) when the shield is the logging character's own.
+   */
   owner: string;
   amount: number;
+  /**
+   * Damage-shield flavor from the corpus-verified wording pairs:
+   * burned/`flames`, pierced/`thorns`, tormented/`frost`.
+   */
+  element?: string;
 }
 
 /** §4.6 — "You were hit by non-melee for 4 damage." Sourceless by design. */
@@ -103,6 +123,16 @@ export interface EnvironmentalDamageEvent extends EventBase {
   /** Always `null`: the line names no source — explicit unknown, never guessed
    * (same pattern as DotTickEvent's unknown-source form). */
   attacker: null;
+}
+
+/**
+ * Corpus-discovered (eql-beta-2026-07, 9.3k lines): "You hurt yourself for 5 points."
+ * Untyped self-inflicted damage (spell recourse / blood costs). Sourceless wording;
+ * both attacker and target are the logging character by construction.
+ */
+export interface SelfDamageEvent extends EventBase {
+  type: "self_damage";
+  amount: number;
 }
 
 /** §4.7 — "You healed Playertwo for 141 (399) hit points by Greater Healing." */
@@ -115,7 +145,11 @@ export interface HealEvent extends EventBase {
   amount: number;
   /** Parenthesized uncapped value when present; overheal = uncappedAmount - amount. */
   uncappedAmount?: number;
-  spell: string;
+  /**
+   * Absent for the corpus-verified spell-less form
+   * "Playerfive healed herself for 5 hit points." (lifetap procs/regen wording).
+   */
+  spell?: string;
 }
 
 /** §4.8 — "You gain a rune for 12 points of absorption." */
@@ -162,13 +196,14 @@ export interface AbilityPurchaseEvent extends EventBase {
 }
 
 /**
- * §4.22 — RESERVED / UNVERIFIED. No EQL fixture; classic wording MUST NOT be
- * assumed. No recognizer ships until a real line lands. Fields optional until verified.
+ * §4.22 — VERIFIED in the July 2026 beta corpus (8.9k lines):
+ * "You have become better at 1H Slashing! (12)" — classic wording confirmed for EQL.
  */
 export interface SkillUpEvent extends EventBase {
   type: "skill_up";
-  skill?: string;
-  value?: number;
+  skill: string;
+  /** New skill value from the trailing "(N)". */
+  value: number;
 }
 
 // ── Loot & economy ────────────────────────────────────────────────────────────
@@ -191,6 +226,23 @@ export interface LootAutoSellEvent extends EventBase {
   quantity: number;
   /** Sale price as integer copper: 1p=1000c, 1g=100c, 1s=10c (DATA_MODEL.md §7). */
   totalCopper: number;
+}
+
+/**
+ * Corpus-discovered (eql-beta-2026-07, 3k lines): coin income lines.
+ * "You receive 1 silver and 8 copper from the corpse." (source `corpse`),
+ * "You received 4 copper from that item." (source `item`),
+ * "You receive 5 copper from Klok Lagnoz for the Rusty Mining Pick(s)." (source `merchant`).
+ */
+export interface CoinGainEvent extends EventBase {
+  type: "coin_gain";
+  /** Integer copper: 1p=1000c, 1g=100c, 1s=10c (DATA_MODEL.md §7). */
+  totalCopper: number;
+  source: "corpse" | "item" | "merchant";
+  /** Merchant name, `merchant` source only. */
+  merchant?: string;
+  /** Item sold, `merchant` source only (verbatim, minus the "(s)" suffix). */
+  item?: string;
 }
 
 // ── World & state ─────────────────────────────────────────────────────────────
@@ -236,24 +288,36 @@ export interface CastBeginEvent extends EventBase {
   spell: string;
 }
 
-/** §4.17 — "You regain your concentration and continue your casting." */
+/**
+ * §4.17 — "You regain your concentration and continue your casting."
+ * Third-person form corpus-verified: "A necro neophyte regains concentration and
+ * continues casting." (`caster` set; absent for the own-cast wording).
+ */
 export interface CastResumeEvent extends EventBase {
   type: "cast_resume";
+  caster?: string;
 }
 
 /**
- * §4.17 — RESERVED / UNVERIFIED. Interrupt/fizzle/out-of-mana wording not yet
- * fixtured; no recognizer until it is. Fields optional until verified.
+ * §4.17 — VERIFIED in the July 2026 beta corpus:
+ * "Your Light Healing spell is interrupted." / "Petone's Lifetap spell is interrupted."
+ * and the fizzle wording "Your Lifespike spell fizzles!" / "Playerfive's Fire Bolt spell fizzles!".
+ * Out-of-mana wording still UNVERIFIED as a distinct interrupt (no spell named).
  */
 export interface CastInterruptEvent extends EventBase {
   type: "cast_interrupt";
   caster?: string;
   spell?: string;
+  /** Failure flavor from the verified wordings. */
+  reason?: "interrupted" | "fizzle";
 }
 
 /**
- * §5 #29 — RESERVED / UNVERIFIED. Resist/partial-resist wording not yet
- * fixtured; no recognizer until it is. Fields optional until verified.
+ * §5 #29 — VERIFIED in the July 2026 beta corpus:
+ * "You resist a large plague rat's Plague Rat Disease!",
+ * "A lesser mummy resisted your Weakening Strike!",
+ * "A skeleton resisted Playerfive's Disease Cloud!", and the protected form
+ * "Playerfive tries to cast a spell on you, but you are protected." (no spell named).
  */
 export interface SpellResistEvent extends EventBase {
   type: "spell_resist";
@@ -272,22 +336,45 @@ export interface FactionChangeEvent extends EventBase {
 
 // ── Chat & meta ───────────────────────────────────────────────────────────────
 
-/** §4.19 — "Petone told you, 'Attacking a dune spiderling Master.'" — strongest pet->owner evidence. */
+/**
+ * §4.19 — "Petone told you, 'Attacking a dune spiderling Master.'" — strongest pet->owner evidence.
+ * Discriminated by the "… Master." suffix inside the quoted message; "told you"
+ * lines without it are NPC/merchant tells (chat_message). Corpus also verified
+ * multi-token pet senders ("Playerfour`s warder told you, …") and unwrapped
+ * reports with no pet name: "Failed to taunt my target, Master." → `pet: null`
+ * (explicit, never guessed).
+ */
 export interface PetChatterEvent extends EventBase {
   type: "pet_chatter";
-  pet: string;
-  /** Full quoted message, verbatim. */
+  /** `null` for the unwrapped "..., Master." report lines that carry no pet name. */
+  pet: string | null;
+  /** Full quoted message (or full line for the unwrapped form), verbatim. */
   message: string;
   /** Target from the "Attacking <target> Master." sub-match, when present. */
   petTarget?: string;
 }
 
-/** §4.20 — "Playerfive tells General:2, '...'" — numbered chat channels. */
+/**
+ * §4.20 — "Playerfive tells General:2, '...'" — numbered chat channels.
+ * Corpus additionally verified: NPC/player say ("An earth elemental says, '...'"),
+ * shout, say-out-of-character, group ("Playerfive tells the group, '...'" /
+ * "You tell your party, '...'"), and direct tells ("Playerfive tells you, '...'" /
+ * "You told Playerfive, '...'"). For those forms `channel` is the normalized kind
+ * (`say` | `shout` | `ooc` | `group` | `tell`) and `channelNumber` is absent;
+ * numbered channels keep the verbatim channel name + number.
+ */
 export interface ChatMessageEvent extends EventBase {
   type: "chat_message";
+  /** `You` for outgoing messages. */
   speaker: string;
   channel: string;
-  channelNumber: number;
+  /** Present only for `Name:number` numbered channels. */
+  channelNumber?: number;
+  /**
+   * Direct-tell recipient when the wording names one: the captured name for
+   * outgoing tells ("You told Playerfive, '…'"), `You` for received tells.
+   */
+  recipient?: string;
   message: string;
 }
 
@@ -297,6 +384,40 @@ export interface LogToggleEvent extends EventBase {
   file: string;
   /** 'OFF' wording accepted by the rule but UNVERIFIED. */
   state: "ON" | "OFF";
+}
+
+/**
+ * Corpus-discovered (eql-beta-2026-07): spell/ability emote lines. Two verified shapes:
+ * second-person exact strings ("You feel your life force drain away.", `subject: null`)
+ * and subject + closed suffix set ("A greater skeleton staggers.", `subject` captured).
+ * Both recognizers are exact-dictionary driven — every entry is a captured corpus line;
+ * emote wording is spell data, so NO generic pattern is attempted.
+ */
+export interface SpellEmoteEvent extends EventBase {
+  type: "spell_emote";
+  /** Emote subject; `null` for second-person (self) emotes. */
+  subject: string | null;
+  /** The emote wording: full line for self emotes, the matched suffix otherwise. */
+  emote: string;
+}
+
+/**
+ * Corpus-discovered (eql-beta-2026-07): game system/UI feedback lines
+ * ("Auto attack is on.", "You are stunned!", "Beginning to memorize Root...").
+ * Recognized from a closed, fixture-backed set of exact strings and anchored
+ * patterns; `kind` is the stable machine name for the message family.
+ */
+export interface SystemMessageEvent extends EventBase {
+  type: "system_message";
+  kind: string;
+  /** Captured parameter for patterned kinds (spell memorized, ability ready, ...). */
+  detail?: string;
+  /**
+   * Sub-classification for kinds that carry one — e.g. `targeted`'s captured
+   * target category, lowercased verbatim: npc, merchant, banker, player,
+   * corpse, and class-GM variants ("monk gm", ...).
+   */
+  category?: string;
 }
 
 /** §4.23 — any line matching no recognizer. Always on; nothing is dropped. */
@@ -316,6 +437,7 @@ export type LogEvent =
   | DotTickEvent
   | DamageShieldEvent
   | EnvironmentalDamageEvent
+  | SelfDamageEvent
   | HealEvent
   | RuneAbsorbEvent
   | KillEvent
@@ -325,6 +447,7 @@ export type LogEvent =
   | AbilityPurchaseEvent
   | LootItemEvent
   | LootAutoSellEvent
+  | CoinGainEvent
   | ZoneEnterEvent
   | StanceChangeBeginEvent
   | StanceChangeEvent
@@ -337,12 +460,16 @@ export type LogEvent =
   | SkillUpEvent
   | PetChatterEvent
   | ChatMessageEvent
+  | SpellEmoteEvent
+  | SystemMessageEvent
   | LogToggleEvent
   | SpellResistEvent
   | RawUnknownEvent;
 
 /**
- * All 30 event type discriminants, in LOG_FORMAT_SPEC.md §5 table order.
+ * All event type discriminants: LOG_FORMAT_SPEC.md §5 table order (30), plus the
+ * corpus-discovered eql-beta-2026-07 families appended in-section
+ * (self_damage, coin_gain, spell_emote, system_message).
  * `satisfies` guarantees no typo/extra; `EVENT_TYPE_STATUS` (a full Record)
  * guarantees completeness against the union.
  */
@@ -353,6 +480,7 @@ export const EVENT_TYPES = [
   "dot_tick",
   "damage_shield",
   "environmental_damage",
+  "self_damage",
   "heal",
   "rune_absorb",
   "kill",
@@ -362,6 +490,7 @@ export const EVENT_TYPES = [
   "ability_purchase",
   "loot_item",
   "loot_auto_sell",
+  "coin_gain",
   "zone_enter",
   "stance_change_begin",
   "stance_change",
@@ -374,6 +503,8 @@ export const EVENT_TYPES = [
   "skill_up",
   "pet_chatter",
   "chat_message",
+  "spell_emote",
+  "system_message",
   "log_toggle",
   "spell_resist",
   "raw_unknown",
@@ -395,6 +526,7 @@ export const EVENT_TYPE_STATUS: Readonly<Record<EventType, EventTypeStatus>> = O
   dot_tick: "verified",
   damage_shield: "verified",
   environmental_damage: "verified",
+  self_damage: "verified",
   heal: "verified",
   rune_absorb: "verified",
   kill: "verified",
@@ -404,6 +536,7 @@ export const EVENT_TYPE_STATUS: Readonly<Record<EventType, EventTypeStatus>> = O
   ability_purchase: "verified",
   loot_item: "verified",
   loot_auto_sell: "verified",
+  coin_gain: "verified",
   zone_enter: "verified",
   stance_change_begin: "verified",
   stance_change: "verified",
@@ -411,13 +544,15 @@ export const EVENT_TYPE_STATUS: Readonly<Record<EventType, EventTypeStatus>> = O
   invocation_change: "verified",
   cast_begin: "verified",
   cast_resume: "verified",
-  cast_interrupt: "reserved",
+  cast_interrupt: "verified",
   faction_change: "verified",
-  skill_up: "reserved",
+  skill_up: "verified",
   pet_chatter: "verified",
   chat_message: "verified",
+  spell_emote: "verified",
+  system_message: "verified",
   log_toggle: "verified",
-  spell_resist: "reserved",
+  spell_resist: "verified",
   raw_unknown: "always",
 });
 

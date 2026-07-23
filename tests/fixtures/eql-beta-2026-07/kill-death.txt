@@ -1,0 +1,8 @@
+[Fri Jul 10 17:20:29 2026] You have slain a fragile pet!
+[Fri Jul 10 17:25:57 2026] A fire beetle has been slain by Playerten!
+[Fri Jul 10 17:32:03 2026] A desert spiderling has been slain by Guard Stoutman!
+[Fri Jul 10 18:39:08 2026] You have been slain by Sergeant Slate!
+[Fri Jul 10 20:16:46 2026] Playereleven died.
+[Sun Jul 12 16:42:09 2026] A large skeleton died.
+[Tue Jul 14 22:06:54 2026] You died.
+[Wed Jul 15 19:32:22 2026] An earth elemental died.

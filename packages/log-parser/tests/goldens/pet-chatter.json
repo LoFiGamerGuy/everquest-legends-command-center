@@ -1,0 +1,85 @@
+{
+  "fixture": "eql-beta-2026-07/pet-chatter.txt",
+  "events": [
+    {
+      "type": "pet_chatter",
+      "pet": "Petone",
+      "message": "Attacking a greater skeleton Master.",
+      "petTarget": "a greater skeleton",
+      "ts": 1783901248000,
+      "seq": 1,
+      "raw": "[Mon Jul 13 00:07:28 2026] Petone told you, 'Attacking a greater skeleton Master.'",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-chatter"
+    },
+    {
+      "type": "pet_chatter",
+      "pet": "Playerfour`s warder",
+      "message": "Attacking a forest drakeling Master.",
+      "petTarget": "a forest drakeling",
+      "ts": 1783699077000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 15:57:57 2026] Playerfour`s warder told you, 'Attacking a forest drakeling Master.'",
+      "byteOffset": 83,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-chatter"
+    },
+    {
+      "type": "pet_chatter",
+      "pet": "Petone",
+      "message": "I am unable to wake a hardened skeleton, Master.",
+      "ts": 1783978433000,
+      "seq": 3,
+      "raw": "[Mon Jul 13 21:33:53 2026] Petone told you, 'I am unable to wake a hardened skeleton, Master.'",
+      "byteOffset": 179,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-chatter"
+    },
+    {
+      "type": "pet_chatter",
+      "pet": null,
+      "message": "Taunting attackers as normal, Master.",
+      "ts": 1783978782000,
+      "seq": 4,
+      "raw": "[Mon Jul 13 21:39:42 2026] Taunting attackers as normal, Master.",
+      "byteOffset": 274,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-report"
+    },
+    {
+      "type": "pet_chatter",
+      "pet": null,
+      "message": "Failed to taunt my target, Master.",
+      "ts": 1783978782000,
+      "seq": 5,
+      "raw": "[Mon Jul 13 21:39:42 2026] Failed to taunt my target, Master.",
+      "byteOffset": 339,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-report"
+    },
+    {
+      "type": "pet_chatter",
+      "pet": null,
+      "message": "Failed to capture a necro apprentice's attention, Master.",
+      "ts": 1783978787000,
+      "seq": 6,
+      "raw": "[Mon Jul 13 21:39:47 2026] Failed to capture a necro apprentice's attention, Master.",
+      "byteOffset": 401,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "pet-report"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "fixture": "eql-beta-2026-07/casting.txt",
+  "events": [
+    {
+      "type": "cast_begin",
+      "caster": "You",
+      "spell": "Cavorting Bones",
+      "ts": 1783703967000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:19:27 2026] You begin casting Cavorting Bones.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-begin"
+    },
+    {
+      "type": "cast_begin",
+      "caster": "Playereight",
+      "spell": "Skin like Diamond",
+      "ts": 1783704207000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 17:23:27 2026] Playereight begins casting Skin like Diamond.",
+      "byteOffset": 62,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-begin"
+    },
+    {
+      "type": "cast_begin",
+      "caster": "Playerfourteen",
+      "spell": "Selo's Accelerating Chorus",
+      "ts": 1783708627000,
+      "seq": 3,
+      "raw": "[Fri Jul 10 18:37:07 2026] Playerfourteen begins singing Selo's Accelerating Chorus.",
+      "byteOffset": 135,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-begin-song"
+    },
+    {
+      "type": "cast_begin",
+      "caster": "Playerfifteen",
+      "spell": "Jonthan's Whistling Warsong",
+      "ts": 1783802478000,
+      "seq": 4,
+      "raw": "[Sat Jul 11 20:41:18 2026] Playerfifteen begins singing Jonthan's Whistling Warsong.",
+      "byteOffset": 220,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-begin-song"
+    },
+    {
+      "type": "cast_resume",
+      "ts": 1783704464000,
+      "seq": 5,
+      "raw": "[Fri Jul 10 17:27:44 2026] You regain your concentration and continue your casting.",
+      "byteOffset": 305,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-resume"
+    },
+    {
+      "type": "cast_resume",
+      "caster": "A shadowknight",
+      "ts": 1783711614000,
+      "seq": 6,
+      "raw": "[Fri Jul 10 19:26:54 2026] A shadowknight regains concentration and continues casting.",
+      "byteOffset": 389,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-resume-other"
+    },
+    {
+      "type": "cast_resume",
+      "caster": "A necro neophyte",
+      "ts": 1783713567000,
+      "seq": 7,
+      "raw": "[Fri Jul 10 19:59:27 2026] A necro neophyte regains concentration and continues casting.",
+      "byteOffset": 476,
+      "lineNo": 7,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-resume-other"
+    },
+    {
+      "type": "cast_begin",
+      "caster": "You",
+      "spell": "Chant of Battle",
+      "ts": 1784241431000,
+      "seq": 8,
+      "raw": "[Thu Jul 16 22:37:11 2026] You begin singing Chant of Battle.",
+      "byteOffset": 565,
+      "lineNo": 8,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-begin-song"
+    }
+  ]
+}

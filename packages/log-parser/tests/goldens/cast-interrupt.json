@@ -1,0 +1,89 @@
+{
+  "fixture": "eql-beta-2026-07/cast-interrupt.txt",
+  "events": [
+    {
+      "type": "cast_interrupt",
+      "caster": "You",
+      "spell": "Cavorting Bones",
+      "reason": "interrupted",
+      "ts": 1783703972000,
+      "seq": 1,
+      "raw": "[Fri Jul 10 17:19:32 2026] Your Cavorting Bones spell is interrupted.",
+      "byteOffset": 0,
+      "lineNo": 1,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-interrupt-you"
+    },
+    {
+      "type": "cast_interrupt",
+      "caster": "a necro neophyte pet",
+      "spell": "Lifetap",
+      "reason": "interrupted",
+      "ts": 1783724377000,
+      "seq": 2,
+      "raw": "[Fri Jul 10 22:59:37 2026] a necro neophyte pet's Lifetap spell is interrupted.",
+      "byteOffset": 70,
+      "lineNo": 2,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-interrupt-other"
+    },
+    {
+      "type": "cast_interrupt",
+      "caster": "a necro acolyte pet",
+      "spell": "Lifespike",
+      "reason": "interrupted",
+      "ts": 1783796466000,
+      "seq": 3,
+      "raw": "[Sat Jul 11 19:01:06 2026] a necro acolyte pet's Lifespike spell is interrupted.",
+      "byteOffset": 150,
+      "lineNo": 3,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-interrupt-other"
+    },
+    {
+      "type": "cast_interrupt",
+      "caster": "You",
+      "spell": "Cavorting Bones",
+      "reason": "fizzle",
+      "ts": 1783703963000,
+      "seq": 4,
+      "raw": "[Fri Jul 10 17:19:23 2026] Your Cavorting Bones spell fizzles!",
+      "byteOffset": 231,
+      "lineNo": 4,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-fizzle-you"
+    },
+    {
+      "type": "cast_interrupt",
+      "caster": "Playereleven",
+      "spell": "Lifespike",
+      "reason": "fizzle",
+      "ts": 1783714793000,
+      "seq": 5,
+      "raw": "[Fri Jul 10 20:19:53 2026] Playereleven's Lifespike spell fizzles!",
+      "byteOffset": 294,
+      "lineNo": 5,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-fizzle-other"
+    },
+    {
+      "type": "cast_interrupt",
+      "caster": "Playerfifteen",
+      "spell": "Elemental Rhythms",
+      "reason": "interrupted",
+      "ts": 1783802485000,
+      "seq": 6,
+      "raw": "[Sat Jul 11 20:41:25 2026] A missed note brings Playerfifteen's Elemental Rhythms to a close!",
+      "byteOffset": 361,
+      "lineNo": 6,
+      "logFileId": 1,
+      "dialectId": "eql-beta-2026-07",
+      "ruleId": "cast-interrupt-song"
+    }
+  ]
+}
