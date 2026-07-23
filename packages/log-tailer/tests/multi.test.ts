@@ -114,13 +114,43 @@ describe("TailManager", () => {
     expect([...manager.files().keys()]).toEqual([first]);
 
     const second = makeLog(dir, "Playertwo", "freeport", 0);
-    const added = manager.rescan();
+    const { added, removed } = manager.rescan();
     expect(added.map((f) => f.path)).toEqual([second]);
+    expect(removed).toEqual([]);
     expect(new Set(manager.files().keys())).toEqual(new Set([first, second]));
 
     append(second, "hello\n");
     await waitFor(() => rec.linesOf(second).length >= 1, "line from rescanned file");
     expect(rec.linesOf(second)).toEqual(["hello"]);
+  });
+
+  it("rescan() at maxFiles capacity swaps a newer file in, stopping the dropped tailer cleanly", async () => {
+    const dir = makeTmpDir(dirs);
+    const older = makeLog(dir, "Playerone", "erudin", 100);
+
+    const manager = makeManager({ logsDir: dir, maxFiles: 1 });
+    const rec = recordManager(manager);
+    manager.start();
+    append(older, "o1\n");
+    await waitFor(() => rec.linesOf(older).length >= 1, "line before swap");
+    // The append above refreshed older's mtime; backdate it again so the
+    // ranking under test is unambiguous.
+    const back = Date.now() / 1000 - 100;
+    fs.utimesSync(older, back, back);
+
+    const newer = makeLog(dir, "Playertwo", "freeport", 0); // strictly newer mtime
+    const { added, removed } = manager.rescan();
+    expect(added.map((f) => f.path)).toEqual([newer]);
+    expect(removed.map((f) => f.path)).toEqual([older]);
+    expect([...manager.files().keys()]).toEqual([newer]);
+    expect(manager.watermarkOf(older)).toBeUndefined();
+
+    append(newer, "n1\n");
+    append(older, "o2\n"); // dropped tailer must be fully stopped: never surfaces
+    await waitFor(() => rec.linesOf(newer).length >= 1, "line from swapped-in file");
+    await sleep(POLL * 5);
+    expect(rec.linesOf(newer)).toEqual(["n1"]);
+    expect(rec.linesOf(older)).toEqual(["o1"]);
   });
 
   it("stop() halts every tailer: appends afterwards emit nothing", async () => {

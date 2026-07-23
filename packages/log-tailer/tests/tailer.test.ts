@@ -271,6 +271,119 @@ describe("LogTailer — rapid appends", () => {
   });
 });
 
+describe("LogTailer — oversized unterminated lines (maxLineBytes)", () => {
+  it("flushes a runaway partial as an overflow line and advances the watermark", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    const runaway = "x".repeat(100); // 100 bytes, no terminator
+    fs.writeFileSync(file, runaway);
+
+    const tailer = makeTailer(file, { maxLineBytes: 32 });
+    const rec = record(tailer);
+    tailer.start(0);
+
+    await waitFor(() => rec.lines().length >= 1, "overflow flush");
+    expect(rec.lines()[0]).toEqual({
+      line: runaway,
+      byteOffset: 0,
+      lineNo: 1,
+      overflow: true,
+    });
+    expect(tailer.watermark).toBe(100); // advanced past the flushed bytes
+
+    // Bytes after the flush start a fresh line at a byte-true offset.
+    append(file, "tail\n");
+    await waitFor(() => rec.lines().length >= 2, "line after overflow");
+    expect(rec.lines()[1]).toEqual({ line: "tail", byteOffset: 100, lineNo: 2 });
+  });
+
+  it("never lets the buffered partial exceed maxLineBytes + maxChunkBytes under steady growth", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    fs.writeFileSync(file, "");
+
+    const tailer = makeTailer(file, { maxLineBytes: 64, maxChunkBytes: 32 });
+    const rec = record(tailer);
+    tailer.start(0);
+
+    const total = 400; // one long line, written in unterminated dribbles
+    for (let i = 0; i < 20; i++) {
+      append(file, "y".repeat(20));
+      await sleep(POLL);
+    }
+    append(file, "\n"); // finally terminate, so any sub-threshold leftover emits too
+    await waitFor(() => tailer.watermark >= total + 1, "all runaway bytes emitted");
+
+    const got = rec.lines();
+    expect(got.length).toBeGreaterThan(1); // the cap forced at least one mid-line flush
+    // Every emission except the final terminated remainder is an overflow flush.
+    expect(got.slice(0, -1).every((l) => l.overflow === true)).toBe(true);
+    // No emission ever exceeds the documented bound (the buffer never grew past it).
+    expect(Math.max(...got.map((l) => l.line.length))).toBeLessThanOrEqual(64 + 32);
+    // Emissions are contiguous and lossless: concatenation is the original bytes.
+    let offset = 0;
+    for (const l of got) {
+      expect(l.byteOffset).toBe(offset);
+      offset += l.line.length;
+    }
+    expect(got.map((l) => l.line).join("")).toBe("y".repeat(total));
+    expect(tailer.watermark).toBe(total + 1); // past the terminator
+  });
+});
+
+describe("LogTailer — stop()/start() generation guard (regression)", () => {
+  it("an in-flight pass abandoned by stop(); start(0) never leaks stale or misaligned offsets", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = logPath(dir);
+    // Fixed-width numbered lines: any offset misalignment breaks the checks.
+    const total = 400;
+    const content = Array.from({ length: total }, (_, i) => `line-${String(i).padStart(4, "0")}\n`).join("");
+    const lineBytes = Buffer.byteLength("line-0000\n");
+    fs.writeFileSync(file, content);
+
+    // Tiny chunks force a long multi-await read pass. Restarting via
+    // setImmediate from inside a 'lines' handler races the pass's pending
+    // read(): without the generation guard, a read issued at an old offset
+    // resolves *after* start(0) reset the state, and its bytes are ingested
+    // with base offset 0 — exactly the corrupted-offset bug under test.
+    const tailer = makeTailer(file, { maxChunkBytes: 64 });
+    const rec = record(tailer);
+
+    const restarts = 8;
+    let restartsDone = 0;
+    let restartPending = false;
+    tailer.on("lines", () => {
+      if (restartsDone >= restarts || restartPending) return;
+      restartsDone++;
+      restartPending = true;
+      setImmediate(() => {
+        tailer.stop(); // mid-activity: the current pass has reads in flight
+        rec.batches.length = 0; // everything from here belongs to the fresh run
+        tailer.start(0);
+        restartPending = false;
+      });
+    });
+    tailer.start(0);
+
+    await waitFor(
+      () => restartsDone >= restarts && !restartPending && rec.lines().length >= total,
+      "full fresh pass after final restart",
+      10_000,
+    );
+    const got = rec.lines();
+    // Exactly the whole file, once: no stale batch, no duplicate, no gap.
+    expect(got).toHaveLength(total);
+    for (let i = 0; i < total; i++) {
+      expect(got[i]).toEqual({
+        line: `line-${String(i).padStart(4, "0")}`,
+        byteOffset: i * lineBytes,
+        lineNo: i + 1,
+      });
+    }
+    expect(tailer.watermark).toBe(total * lineBytes);
+  });
+});
+
 describe("LogTailer — stop()", () => {
   it("stops cleanly: no events after stop, idempotent, and restartable", async () => {
     const dir = makeTmpDir(dirs);

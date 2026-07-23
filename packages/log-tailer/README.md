@@ -2,9 +2,14 @@
 
 Log discovery and resumable byte-offset tailing for EQL Command Center
 (ARCHITECTURE.md §5 "Tailing design"). Pure TypeScript over Node builtins
-(`node:fs`, `node:path`, `node:events`) — no Tauri, no DOM, no SQLite — so the
-same implementation serves the Node CLI, tests, and (via the desktop shell) the
-app.
+(`node:fs`, `node:path`, `node:events`) — no Tauri, no DOM, no SQLite.
+
+This package is the **Node-context reference implementation of the tailing
+contract**: it serves the Node CLI, tests, and headless replay. In the
+desktop app, ARCHITECTURE.md §4/ADR-1 places live tailing in the Rust/Tauri
+sidecar (planned for M2), which mirrors this contract — same watermark
+semantics, truncation rule, hybrid scheduling, and complete-lines-only
+guarantee — and streams chunks+offsets to the webview.
 
 Strictly **passive**: files are opened read-only, nothing in the game
 directory is ever written.
@@ -34,10 +39,19 @@ directory is ever written.
     and retried next tick.
   - Bytes are decoded as Windows-1252 (lossless fallback) after slicing;
     offsets always count raw bytes.
+  - **Runaway lines are bounded:** a partial line that grows past
+    `maxLineBytes` (default 1 MiB) is flushed as a line marked
+    `overflow: true` and the watermark advances past it, so a
+    never-terminated line cannot grow memory forever. Overflow flushes are a
+    memory-safety valve, not real log lines — offsets stay byte-true, and
+    downstream parsing classifies them as `RawUnknown`.
 - **`TailManager`** — discovery + one `LogTailer` per selected file (the N
   most recently modified, or all), re-emitting events tagged with a stable
   `fileId` (the resolved absolute path — the same identity `log_files.path`
-  uses).
+  uses). `rescan()` reconciles against the fresh mtime ranking: newly
+  selected files start tailing, files that fell out of the top N (or
+  vanished) have their tailer stopped cleanly, and files kept across the
+  scan keep their live tailer (offsets are never reset by a rescan).
 
 ## The offset boundary (who persists what)
 
@@ -60,12 +74,27 @@ and after each `lines` batch persist `batch.watermark` atomically with the
 batch's parsed events. On `truncated`, reset the stored offset to 0 (a
 diagnostics note is recommended, per ARCHITECTURE.md §5.2).
 
+## Known limitations
+
+- **Shrink-then-regrow within one poll window is undetectable.** Truncation
+  is inferred from length alone (`observed length < read position`). If a
+  file is truncated **and** regrows past the watermark between two polls,
+  the observed length never drops below the read position, so the replaced
+  prefix is neither re-read nor flagged and subsequent reads are misaligned
+  until the next detectable truncation. Closing this hole requires
+  inode/file-id or creation-time tracking, which ARCHITECTURE.md §5.2
+  explicitly defers as a future refinement. In practice the window is one
+  poll interval (~200 ms) and the game recreates deleted logs from empty, so
+  regrowing past a nontrivial watermark that fast is unrealistic.
+- An `fs.watch` handle that cannot be established (file not yet created) or
+  that dies is re-attached lazily on the next successful poll; in the
+  meantime the poll alone drives tailing (it is the source of truth anyway).
+
 ## Non-goals
 
 - No parsing — lines go to `@eqlcc/log-parser`.
 - No offset/watermark storage (above).
-- No inode tracking; truncation is inferred from length alone (documented
-  possible future refinement).
+- No inode tracking (see Known limitations).
 
 ## Example
 

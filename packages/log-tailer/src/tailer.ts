@@ -25,6 +25,13 @@
  *   or duplicate wake-up is harmless.
  * - **Transient errors** (locked file, mid-rotation `ENOENT`, ...) are
  *   swallowed and retried on the next tick; tailing never aborts on its own.
+ *
+ * Known limitation (documented, deferred per ARCHITECTURE.md §5.2): if a file
+ * is truncated **and regrows past the watermark within a single poll window**,
+ * the length heuristic cannot see it — the observed length never drops below
+ * the read position, so the replaced prefix is neither re-read nor flagged.
+ * Detecting this requires inode/file-id or creation-time tracking, which the
+ * architecture explicitly defers as a future refinement.
  */
 
 import { EventEmitter } from "node:events";
@@ -42,6 +49,15 @@ export interface TailedLine {
   byteOffset: number;
   /** 1-based line number, counted from the line at the tail's start offset. */
   lineNo: number;
+  /**
+   * Present (and `true`) only when this "line" is an oversized unterminated
+   * buffer flushed because it exceeded `maxLineBytes` — a memory-safety
+   * valve, not a real log line. Its text ends mid-line; the runaway line's
+   * remaining bytes surface as subsequent lines/flushes. Offsets stay
+   * byte-true. Downstream parsing classifies these as `RawUnknown`, so the
+   * lossless model is preserved.
+   */
+  overflow?: true;
 }
 
 /** A batch of complete lines plus the resume watermark they establish. */
@@ -79,6 +95,14 @@ export interface LogTailerOptions {
   useFsWatch?: boolean;
   /** Maximum bytes per read; each full chunk is emitted as one batch. Default 64 KiB. */
   maxChunkBytes?: number;
+  /**
+   * Cap on the buffered partial (unterminated) line. When the buffer would
+   * exceed this, it is flushed as an `overflow` line (see
+   * {@link TailedLine.overflow}) and the watermark advances, so a
+   * never-terminated line cannot grow memory forever. A flush can carry up
+   * to `maxLineBytes + maxChunkBytes` bytes. Default 1 MiB.
+   */
+  maxLineBytes?: number;
   /** Line decoding. Offsets always count raw bytes. Default `"windows-1252"`. */
   encoding?: LogEncoding;
 }
@@ -119,9 +143,17 @@ export class LogTailer extends EventEmitter<TailerEvents> {
   private readonly pollIntervalMs: number;
   private readonly useFsWatch: boolean;
   private readonly maxChunkBytes: number;
+  private readonly maxLineBytes: number;
   private readonly encoding: LogEncoding;
 
   private running = false;
+  /**
+   * Generation token: incremented by every `start()` and `stop()`. Async
+   * continuations capture the generation they were born under and abandon
+   * silently when it goes stale, so an in-flight read pass from a previous
+   * run can never touch state (or emit) after `stop()` / a restart.
+   */
+  private generation = 0;
   private timer: NodeJS.Timeout | undefined;
   private watcher: fs.FSWatcher | undefined;
   private passInFlight = false;
@@ -141,9 +173,11 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     this.pollIntervalMs = options.pollIntervalMs ?? 200;
     this.useFsWatch = options.useFsWatch ?? true;
     this.maxChunkBytes = options.maxChunkBytes ?? 64 * 1024;
+    this.maxLineBytes = options.maxLineBytes ?? 1024 * 1024;
     this.encoding = options.encoding ?? "windows-1252";
     if (this.pollIntervalMs <= 0) throw new RangeError("pollIntervalMs must be > 0");
     if (this.maxChunkBytes <= 0) throw new RangeError("maxChunkBytes must be > 0");
+    if (this.maxLineBytes <= 0) throw new RangeError("maxLineBytes must be > 0");
   }
 
   /**
@@ -157,6 +191,9 @@ export class LogTailer extends EventEmitter<TailerEvents> {
       throw new RangeError(`fromOffset must be a non-negative integer, got ${fromOffset}`);
     }
     this.running = true;
+    this.generation++; // invalidate any in-flight pass from a previous run
+    this.passInFlight = false;
+    this.wakeAfterPass = false;
     this.nextReadOffset = fromOffset;
     this.partial = EMPTY;
     this.partialStart = fromOffset;
@@ -168,6 +205,7 @@ export class LogTailer extends EventEmitter<TailerEvents> {
   /** Stop tailing and release all handles/timers. Idempotent. */
   stop(): void {
     this.running = false;
+    this.generation++; // abandon any in-flight pass
     if (this.timer !== undefined) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -198,7 +236,8 @@ export class LogTailer extends EventEmitter<TailerEvents> {
       this.watcher.unref();
     } catch {
       // fs.watch unavailable (or file not created yet) — the poll is the
-      // source of truth, so tailing works regardless.
+      // source of truth, so tailing works regardless. pollOnce() lazily
+      // re-attaches once the file is stat-able again.
       this.watcher = undefined;
     }
   }
@@ -226,6 +265,7 @@ export class LogTailer extends EventEmitter<TailerEvents> {
   }
 
   private async runPass(): Promise<void> {
+    const gen = this.generation;
     if (!this.running) return;
     if (this.passInFlight) {
       // A watch event fired mid-pass; run one more pass right after.
@@ -234,35 +274,51 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     }
     this.passInFlight = true;
     try {
-      await this.pollOnce();
+      await this.pollOnce(gen);
     } finally {
-      this.passInFlight = false;
-      const immediate = this.wakeAfterPass;
-      this.wakeAfterPass = false;
-      this.schedule(immediate ? 0 : this.pollIntervalMs);
+      // If start()/stop() superseded this pass, the new generation owns the
+      // flags and the schedule — a stale pass must not touch either.
+      if (this.generation === gen) {
+        this.passInFlight = false;
+        const immediate = this.wakeAfterPass;
+        this.wakeAfterPass = false;
+        this.schedule(immediate ? 0 : this.pollIntervalMs);
+      }
     }
   }
 
   // ── One poll pass: stat → truncation check → read to (stat-time) EOF ────────
+  //
+  // `gen` is the generation this pass was born under; after every await we
+  // re-check it and abandon silently if a start()/stop() happened meanwhile —
+  // otherwise a stale continuation would apply reads taken at old offsets to
+  // the restarted tail's state and corrupt emitted offsets/watermarks.
 
-  private async pollOnce(): Promise<void> {
+  private async pollOnce(gen: number): Promise<void> {
     let size: number;
     try {
       size = (await fsp.stat(this.path)).size;
     } catch (err) {
-      this.reportError(err);
+      this.reportError(err, gen);
       return;
     }
+    if (this.generation !== gen) return;
+
+    // The file is stat-able: lazily (re-)attach the fast-path watcher if it
+    // failed at start() or died since (fs.watch handles do not resurrect).
+    if (this.useFsWatch && this.watcher === undefined) this.attachWatcher();
 
     // Truncation / rotation rule (ARCHITECTURE.md §5.2): length < our read
     // position ⇒ the file was truncated or replaced. Reset to 0 and re-read.
+    // (Length-only heuristic: a truncate-and-regrow-past-the-watermark within
+    // one poll window is undetectable — see module doc / README limitations.)
     if (size < this.nextReadOffset) {
       const previousWatermark = this.partialStart;
       this.nextReadOffset = 0;
       this.partial = EMPTY;
       this.partialStart = 0;
       this.nextLineNo = 1;
-      if (this.running) this.emit("truncated", { path: this.path, previousWatermark, newLength: size });
+      this.emit("truncated", { path: this.path, previousWatermark, newLength: size });
     }
     if (size <= this.nextReadOffset) return; // nothing new
 
@@ -270,27 +326,32 @@ export class LogTailer extends EventEmitter<TailerEvents> {
     try {
       handle = await fsp.open(this.path, "r");
     } catch (err) {
-      this.reportError(err);
+      this.reportError(err, gen);
       return;
     }
     try {
       // Read only up to the stat-time size: keeps a pass bounded even while
       // the game keeps appending (the next tick picks up the rest).
-      while (this.running && this.nextReadOffset < size) {
+      while (this.generation === gen && this.nextReadOffset < size) {
         const want = Math.min(this.maxChunkBytes, size - this.nextReadOffset);
         const buf = Buffer.allocUnsafe(want);
         const { bytesRead } = await handle.read(buf, 0, want, this.nextReadOffset);
+        if (this.generation !== gen) return; // superseded mid-read: abandon
         if (bytesRead <= 0) break; // shrank mid-read; next pass re-checks
         this.ingest(buf.subarray(0, bytesRead));
       }
     } catch (err) {
-      this.reportError(err);
+      this.reportError(err, gen);
     } finally {
       await handle.close().catch(() => undefined);
     }
   }
 
-  /** Split a newly-read chunk into complete lines; buffer the remainder. */
+  /**
+   * Split a newly-read chunk into complete lines; buffer the remainder.
+   * Only called from a pass whose generation is current (and `ingest` is
+   * synchronous), so it may mutate state and emit freely.
+   */
   private ingest(chunk: Buffer): void {
     const base = this.partialStart;
     const buf = this.partial.length > 0 ? Buffer.concat([this.partial, chunk]) : chunk;
@@ -310,11 +371,24 @@ export class LogTailer extends EventEmitter<TailerEvents> {
       lineStart = nl + 1;
     }
 
+    // Memory-safety valve: a never-terminated line must not buffer forever.
+    // Flush the oversized remainder as an `overflow` line and advance the
+    // watermark past it (see TailedLine.overflow for the semantics).
+    if (buf.length - lineStart > this.maxLineBytes) {
+      lines.push({
+        line: decodeLine(buf.subarray(lineStart), this.encoding),
+        byteOffset: base + lineStart,
+        lineNo: this.nextLineNo++,
+        overflow: true,
+      });
+      lineStart = buf.length;
+    }
+
     // Copy the remainder so we never pin the (up to 64 KiB) read buffer.
     this.partial = lineStart < buf.length ? Buffer.from(buf.subarray(lineStart)) : EMPTY;
     this.partialStart = base + lineStart;
 
-    if (lines.length > 0 && this.running) {
+    if (lines.length > 0) {
       this.emit("lines", { lines, watermark: this.partialStart });
     }
   }
@@ -322,12 +396,13 @@ export class LogTailer extends EventEmitter<TailerEvents> {
   /**
    * Transient errors (file locked, mid-rotation ENOENT, ...) are silently
    * retried next tick. Anything else is also retried — tailing never aborts
-   * itself — but is surfaced via `error` when someone is listening.
+   * itself — but is surfaced via `error` when someone is listening (and the
+   * reporting pass is still current).
    */
-  private reportError(err: unknown): void {
+  private reportError(err: unknown, gen: number): void {
     const code = (err as NodeJS.ErrnoException | null)?.code;
     if (code !== undefined && TRANSIENT_CODES.has(code)) return;
-    if (this.running && this.listenerCount("error") > 0) {
+    if (this.generation === gen && this.listenerCount("error") > 0) {
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     }
   }

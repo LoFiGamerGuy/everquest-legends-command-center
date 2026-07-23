@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type { LineBatch, LogTailer, TruncationEvent } from "../src/index.js";
+import type { LineBatch, LogTailer, TailedLine, TruncationEvent } from "../src/index.js";
 
 /** Create a fresh temp dir under the OS tmpdir; caller cleans up via rmDirs. */
 export function makeTmpDir(created: string[]): string {
@@ -39,7 +39,7 @@ export function sleep(ms: number): Promise<void> {
 export interface Recorder {
   batches: LineBatch[];
   truncations: TruncationEvent[];
-  lines(): { line: string; byteOffset: number; lineNo: number }[];
+  lines(): TailedLine[];
   texts(): string[];
 }
 

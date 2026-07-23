@@ -59,8 +59,10 @@ interface ManagerEvents {
  * Discovers log files and tails each with its own {@link LogTailer},
  * re-emitting `lines` / `truncated` / `error` tagged with a stable `fileId`.
  *
- * Lifecycle: construct → `start()` → events → `stop()`. `rescan()` picks up
- * files that appeared after `start()` (never dropping files already tailed).
+ * Lifecycle: construct → `start()` → events → `stop()`. `rescan()`
+ * reconciles the tailed set against the current mtime ranking: at `maxFiles`
+ * capacity a newer file swaps out the stalest tailed one (its tailer is
+ * stopped cleanly first).
  */
 export class TailManager extends EventEmitter<ManagerEvents> {
   private readonly options: TailManagerOptions;
@@ -83,22 +85,45 @@ export class TailManager extends EventEmitter<ManagerEvents> {
   }
 
   /**
-   * Re-run discovery and start tailing any newly selected files. Files
-   * already being tailed are kept as-is (their offsets are live). Returns
-   * the files newly added by this scan.
+   * Re-run discovery and reconcile the tailed set against the fresh
+   * most-recently-modified ranking:
+   *
+   * - files newly in the top `maxFiles` start tailing (offset from
+   *   `resolveStartOffset`),
+   * - files that fell out of the top `maxFiles` — or vanished from the
+   *   directory — have their tailer stopped cleanly and are dropped,
+   * - files tailed both before and after keep their **live** tailer
+   *   (offsets are never reset by a rescan) with refreshed metadata.
+   *
+   * A re-added file resumes wherever `resolveStartOffset` says, so pairing
+   * rescans with a persisted watermark (see README) makes swaps lossless.
    */
-  rescan(): DiscoveredLogFile[] {
+  rescan(): { added: DiscoveredLogFile[]; removed: DiscoveredLogFile[] } {
     if (!this.running) throw new Error("TailManager is not running");
     const discovered = discoverLogFiles(this.options.logsDir); // most recent first
-    const limit = this.options.maxFiles ?? Infinity;
-    const added: DiscoveredLogFile[] = [];
-    for (const file of discovered) {
-      if (this.tails.size >= limit && !this.tails.has(file.path)) continue;
-      if (this.tails.has(file.path)) continue;
-      this.addTail(file);
-      added.push(file);
+    const desired = discovered.slice(0, this.options.maxFiles ?? discovered.length);
+    const desiredIds = new Set(desired.map((f) => f.path));
+
+    const removed: DiscoveredLogFile[] = [];
+    for (const [id, entry] of this.tails) {
+      if (!desiredIds.has(id)) {
+        entry.tailer.stop();
+        this.tails.delete(id);
+        removed.push(entry.file);
+      }
     }
-    return added;
+
+    const added: DiscoveredLogFile[] = [];
+    for (const file of desired) {
+      const existing = this.tails.get(file.path);
+      if (existing !== undefined) {
+        existing.file = file; // refresh size/mtime metadata; tailer stays live
+      } else {
+        this.addTail(file);
+        added.push(file);
+      }
+    }
+    return { added, removed };
   }
 
   /** Stop every tailer and release all handles/timers. Idempotent. */
@@ -127,12 +152,14 @@ export class TailManager extends EventEmitter<ManagerEvents> {
   private addTail(file: DiscoveredLogFile): void {
     const fileId = file.path;
     const tailer = new LogTailer(file.path, this.options.tailer ?? {});
-    tailer.on("lines", (batch) => this.emit("lines", { ...batch, fileId, file }));
-    tailer.on("truncated", (info) => this.emit("truncated", { ...info, fileId, file }));
+    const entry = { file, tailer };
+    // Read `entry.file` at emit time so rescan metadata refreshes are seen.
+    tailer.on("lines", (batch) => this.emit("lines", { ...batch, fileId, file: entry.file }));
+    tailer.on("truncated", (info) => this.emit("truncated", { ...info, fileId, file: entry.file }));
     tailer.on("error", (err) => {
       if (this.listenerCount("error") > 0) this.emit("error", err, fileId);
     });
-    this.tails.set(fileId, { file, tailer });
+    this.tails.set(fileId, entry);
     const fromOffset = this.options.resolveStartOffset?.(file) ?? 0;
     tailer.start(fromOffset);
   }
