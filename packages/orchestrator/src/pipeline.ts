@@ -225,15 +225,27 @@ export class IngestPipeline {
 
   /**
    * Build the resolver for the resume point. Prefer the persisted snapshot; if
-   * there is no USABLE snapshot (absent, version-mismatched, or corrupt — see
-   * loadResolverSnapshot) AND we are resuming past offset 0, REBUILD attribution
-   * state by replaying the already-persisted events through a fresh resolver, so
-   * resume does not permanently diverge from an uninterrupted run (HIGH 1). A
-   * fresh DB (watermark 0) just starts a fresh resolver.
+   * there is no USABLE snapshot AND we are resuming past offset 0, REBUILD
+   * attribution state by replaying the already-persisted events through a fresh
+   * resolver, so resume does not permanently diverge from an uninterrupted run
+   * (HIGH 1). A fresh DB (watermark 0) just starts a fresh resolver.
+   *
+   * "Usable" is defensive at BOTH layers: loadResolverSnapshot rejects absent /
+   * version-mismatched / unparseable / outer-malformed rows, and fromSnapshot is
+   * additionally wrapped in try/catch here so a parseable-but-nested-invalid blob
+   * (e.g. an entity missing its evidence arrays, which throws inside cloneEntity)
+   * ALSO falls back to rebuild-from-events instead of wedging init. The table is a
+   * rebuildable cache, so discarding on any restore failure is strictly safe.
    */
   private buildResolver(db: SqlDatabase, logFileId: number, watermark: Watermark): EntityResolver {
     const snapshot = loadResolverSnapshot(db, logFileId);
-    if (snapshot !== undefined) return EntityResolver.fromSnapshot(snapshot);
+    if (snapshot !== undefined) {
+      try {
+        return EntityResolver.fromSnapshot(snapshot);
+      } catch {
+        // Nested-invalid snapshot: discard and fall through to rebuild-from-events.
+      }
+    }
     const resolver = EntityResolver.forLogFile(path.basename(this.options.logFile.path), logFileId);
     if (watermark.seq > 0 || watermark.byteOffset > 0) {
       this.rebuildResolverFromEvents(db, logFileId, resolver, watermark.seq);

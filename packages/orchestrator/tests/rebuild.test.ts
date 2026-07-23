@@ -82,6 +82,10 @@ describe("IngestPipeline — resolver rebuild from events when no usable snapsho
     ["version-mismatched", (db, id) => db.prepare("UPDATE resolver_snapshot SET version = 999 WHERE log_file_id = ?").run(id)],
     ["corrupt JSON", (db, id) => db.prepare("UPDATE resolver_snapshot SET snapshot = '{not json' WHERE log_file_id = ?").run(id)],
     ["malformed shape", (db, id) => db.prepare("UPDATE resolver_snapshot SET snapshot = '{\"version\":1}' WHERE log_file_id = ?").run(id)],
+    // Outer-valid but nested-invalid: passes loadResolverSnapshot's shallow shape
+    // check, then throws inside EntityResolver.fromSnapshot/cloneEntity. buildResolver
+    // must catch and fall back to rebuild-from-events (MAJOR round-2), not wedge init.
+    ["nested-invalid", (db, id) => db.prepare('UPDATE resolver_snapshot SET snapshot = \'{"version":1,"owner":{},"entities":[{}]}\' WHERE log_file_id = ?').run(id)],
   ];
 
   for (const [label, damage] of damagers) {
