@@ -9,6 +9,7 @@
 [Fri Jul 10 17:31:51 2026] You have finished memorizing Cavorting Bones.
 [Fri Jul 10 17:31:39 2026] You forget Cavorting Bones.
 [Fri Jul 10 17:17:42 2026] Targeted (Merchant): Dougina
+[Fri Jul 10 19:14:27 2026] Targeted (NPC): a decaying skeleton
 [Mon Jul 13 23:04:41 2026] You activate Asp Venom.
 [Sun Jul 12 17:52:01 2026] Spell set combat1 loaded.
 [Fri Jul 10 17:53:32 2026] You have gained an ability point!  You now have 1 ability point.

@@ -7,6 +7,12 @@
  * Malformed timestamp policy: the whole line becomes `raw_unknown`; `ts`
  * carries the last well-formed timestamp seen in this file (0 if none) so the
  * event still sorts near its neighbors. Documented, never guessed content.
+ *
+ * Ordering contract: `ts` is second-resolution, so the parser assigns a
+ * per-file monotonic `seq` (1-based, every emitted event, including
+ * raw_unknown) — `(logFileId, seq)` is the canonical total order. On tailer
+ * resume pass `startSeq` (persisted with the byte-offset watermark in the same
+ * transaction, DATA_MODEL.md §2).
  */
 
 import type { LogEvent } from "@eqlcc/event-schema";
@@ -19,25 +25,31 @@ import { MESSAGE_OFFSET, parseTimestamp } from "./timestamp.js";
 export interface ParserOptions {
   logFileId: number;
   registry?: RecognizerRegistry;
+  /** Resume value: `seq` of the last previously-emitted event (default 0). */
+  startSeq?: number;
 }
 
 export class LogParser {
   readonly registry: RecognizerRegistry;
   private readonly logFileId: number;
   private lastTs = 0;
+  private seq: number;
 
   constructor(options: ParserOptions) {
     this.logFileId = options.logFileId;
     this.registry = options.registry ?? new RecognizerRegistry();
+    this.seq = options.startSeq ?? 0;
   }
 
   parseLine(line: RawLine): LogEvent {
     const { raw, byteOffset, lineNo } = line;
+    const seq = ++this.seq;
     const ts = parseTimestamp(raw);
     if (ts === null) {
       return {
         type: "raw_unknown",
         ts: this.lastTs,
+        seq,
         raw,
         byteOffset,
         lineNo,
@@ -53,6 +65,7 @@ export class LogParser {
       return {
         type: "raw_unknown",
         ts,
+        seq,
         raw,
         byteOffset,
         lineNo,
@@ -64,6 +77,7 @@ export class LogParser {
     return {
       ...recognition.payload,
       ts,
+      seq,
       raw,
       byteOffset,
       lineNo,

@@ -92,10 +92,14 @@ describe("fixture goldens (eql-beta-2026-07)", () => {
   it("stamps full provenance on every event", () => {
     for (const file of fixtureFiles) {
       let lastOffset = -1;
+      let lastSeq = 0;
       for (const event of parseFixture(file)) {
         expect(event.raw.length).toBeGreaterThan(0);
         expect(event.byteOffset).toBeGreaterThan(lastOffset);
         lastOffset = event.byteOffset;
+        // (logFileId, seq) is the canonical total order: strictly monotonic.
+        expect(event.seq).toBe(lastSeq + 1);
+        lastSeq = event.seq;
         expect(event.lineNo).toBeGreaterThan(0);
         expect(event.logFileId).toBe(1);
         expect(event.dialectId).toBe(DIALECT_EQL_BETA_2026_07);

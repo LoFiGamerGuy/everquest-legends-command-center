@@ -35,6 +35,11 @@ function chat(
   };
 }
 
+/** Direct tell with a named recipient ("You" for received tells). */
+function tell(speaker: string, recipient: string, message: string): EventPayload {
+  return { type: "chat_message", speaker, channel: "tell", recipient, message };
+}
+
 export const chatRules: RecognizerRule[] = [
   // "Playerfive tells General:2, '…'"
   regexRule({
@@ -102,7 +107,7 @@ export const chatRules: RecognizerRule[] = [
     family: "chat_message",
     frequencyRank: 570,
     regex: /^(?<speaker>.+?) tells you, '(?<message>.+)'$/,
-    build: (g) => chat(g["speaker"] as string, "tell", g["message"] as string),
+    build: (g) => tell(g["speaker"] as string, "You", g["message"] as string),
   }),
 
   // "You told Playertwentyone, '…'"
@@ -111,7 +116,7 @@ export const chatRules: RecognizerRule[] = [
     family: "chat_message",
     frequencyRank: 580,
     regex: /^You told (?<recipient>\S+), '(?<message>.+)'$/,
-    build: (g) => chat("You", "tell", g["message"] as string),
+    build: (g) => tell("You", g["recipient"] as string, g["message"] as string),
   }),
 
   // NPC/merchant tells — any "told you" line pet-chatter did not claim via its
@@ -122,7 +127,7 @@ export const chatRules: RecognizerRule[] = [
     family: "chat_message",
     frequencyRank: 280,
     regex: /^(?<speaker>.+?) told you, '(?<message>.+)'$/,
-    build: (g) => chat(g["speaker"] as string, "tell", g["message"] as string),
+    build: (g) => tell(g["speaker"] as string, "You", g["message"] as string),
   }),
 
   // "Playertwentyone tells the group, 'hey hey …'"

@@ -117,9 +117,21 @@ describe("LogParser error paths", () => {
       type: "raw_unknown",
       ruleId: null,
       ts: Date.UTC(2026, 6, 10, 17, 14, 1),
+      seq: 2,
       byteOffset: 47,
       lineNo: 2,
       logFileId: 3,
     });
+    expect(good.seq).toBe(1);
+  });
+
+  it("resumes seq from startSeq (tailer watermark restore)", () => {
+    const parser = new LogParser({ logFileId: 3, startSeq: 41 });
+    const event = parser.parseLine({
+      raw: "[Fri Jul 10 17:14:01 2026] Auto attack is on.",
+      byteOffset: 4200,
+      lineNo: 42,
+    });
+    expect(event.seq).toBe(42);
   });
 });

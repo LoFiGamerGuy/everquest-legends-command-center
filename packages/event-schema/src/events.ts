@@ -26,6 +26,16 @@ import type { DialectId } from "./enums.js";
 export interface EventBase {
   /** Unix epoch milliseconds, derived from the line's local-time asctime stamp. */
   ts: number;
+  /**
+   * Per-file monotonic emission ordinal (1-based), assigned by the parser in
+   * line order. `ts` is second-resolution and same-second events are common:
+   * `(logFileId, seq)` is the CANONICAL total order for the event stream —
+   * downstream projections must never order by `ts` alone (LOG_FORMAT_SPEC.md
+   * §2 "monotonic per-second sequence"). On tailer resume, `seq` is restored
+   * alongside the byte-offset watermark (same transaction, DATA_MODEL.md §2);
+   * `(logFileId, byteOffset)` remains an equivalent persistent order key.
+   */
+  seq: number;
   /** Original line, verbatim, minus the line terminator. */
   raw: string;
   /** Offset of the line's first byte in the source file. */
@@ -191,8 +201,9 @@ export interface AbilityPurchaseEvent extends EventBase {
  */
 export interface SkillUpEvent extends EventBase {
   type: "skill_up";
-  skill?: string;
-  value?: number;
+  skill: string;
+  /** New skill value from the trailing "(N)". */
+  value: number;
 }
 
 // ── Loot & economy ────────────────────────────────────────────────────────────
@@ -359,6 +370,11 @@ export interface ChatMessageEvent extends EventBase {
   channel: string;
   /** Present only for `Name:number` numbered channels. */
   channelNumber?: number;
+  /**
+   * Direct-tell recipient when the wording names one: the captured name for
+   * outgoing tells ("You told Playerfive, '…'"), `You` for received tells.
+   */
+  recipient?: string;
   message: string;
 }
 
@@ -396,6 +412,12 @@ export interface SystemMessageEvent extends EventBase {
   kind: string;
   /** Captured parameter for patterned kinds (spell memorized, ability ready, ...). */
   detail?: string;
+  /**
+   * Sub-classification for kinds that carry one — e.g. `targeted`'s captured
+   * target category, lowercased verbatim: npc, merchant, banker, player,
+   * corpse, and class-GM variants ("monk gm", ...).
+   */
+  category?: string;
 }
 
 /** §4.23 — any line matching no recognizer. Always on; nothing is dropped. */

@@ -77,11 +77,19 @@ export const systemRules: RecognizerRule[] = [
   }),
 
   // "Targeted (NPC): a decaying skeleton" / "Targeted (Merchant): Klok Lagnoz"
-  detailRule({
+  // Captured category (npc/merchant/banker/player/corpse/class-GM …) is kept
+  // as a structured, lowercased field.
+  regexRule({
     ruleId: "system-targeted",
+    family: "system_message",
     frequencyRank: 410,
-    regex: /^Targeted \((?<kind>[A-Za-z ]+)\): (?<detail>.+)$/,
-    kind: "targeted",
+    regex: /^Targeted \((?<category>[A-Za-z ]+)\): (?<detail>.+)$/,
+    build: (g) => ({
+      type: "system_message",
+      kind: "targeted",
+      detail: g["detail"] as string,
+      category: (g["category"] as string).toLowerCase(),
+    }),
   }),
 
   // "You activate Skull Bash."

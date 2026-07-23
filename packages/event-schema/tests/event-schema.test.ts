@@ -28,6 +28,7 @@ const eventTypesComplete: MissingFromEventTypes extends never ? true : never = t
 function base(lineNo: number, raw: string): Omit<EventBase, "ruleId"> & { ruleId: string } {
   return {
     ts: 1752900000000 + lineNo * 1000,
+    seq: lineNo,
     raw,
     byteOffset: lineNo * 100,
     lineNo,
@@ -248,6 +249,7 @@ const samples: { [K in EventType]: EventOfType<K> } = {
   },
   raw_unknown: {
     ts: 1752900030000,
+    seq: 30,
     raw: "[Wed Jul 16 20:15:30 2026] Soandso invoked some line format we have never seen.",
     byteOffset: 3000,
     lineNo: 30,
@@ -330,6 +332,7 @@ describe("event type enum", () => {
     for (const event of allSamples) {
       expect(EVENT_TYPES).toContain(event.type);
       expect(typeof event.ts).toBe("number");
+      expect(typeof event.seq).toBe("number");
       expect(typeof event.raw).toBe("string");
       expect(typeof event.byteOffset).toBe("number");
       expect(typeof event.lineNo).toBe("number");

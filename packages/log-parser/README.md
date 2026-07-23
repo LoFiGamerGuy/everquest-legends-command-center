@@ -30,6 +30,15 @@ Overall unmatched rate **0.73%** (target <2%, ARCHITECTURE.md §7); worst file
 per-mob spell-data text that is deliberately *not* pattern-matched (fixture
 policy: we never invent formats).
 
+## Ordering contract
+
+`ts` is second-resolution and same-second events are common. Every event
+therefore carries a per-file monotonic `seq` (1-based, assigned in line order,
+including `raw_unknown`): **`(logFileId, seq)` is the canonical total order** —
+never sort by `ts` alone. On tailer resume, pass `startSeq` (persisted together
+with the byte-offset watermark in one transaction); `(logFileId, byteOffset)`
+remains an equivalent persistent order key.
+
 ## Rules
 
 Fixtures are the contract: a recognizer changes only together with a captured,
