@@ -15,6 +15,22 @@ export { LogParser } from "./parser.js";
 export type { ParserOptions } from "./parser.js";
 export { UnknownStats, normalizeShape } from "./unknown-stats.js";
 export type { UnknownShape } from "./unknown-stats.js";
+// Plural dialects, detection, drift, benchmark (LAUNCH_DIALECT_READINESS.md).
+export { DialectRegistry, createDefaultDialectRegistry } from "./dialect.js";
+export type { Dialect, DialectDefinition, DialectBaseline } from "./dialect.js";
+export {
+  detectDialect,
+  detectExplicitMarker,
+  sampleForDetection,
+  DRIFT_ALERT_RATE,
+  UNKNOWN_DIALECT,
+} from "./detect.js";
+export type { DialectDetection, DetectDialectOptions, SampleOptions } from "./detect.js";
+export { driftReport, FAMILY_DROP_THRESHOLD } from "./drift.js";
+export type { DriftReport, FamilyDrift, DriftReportOptions } from "./drift.js";
+export { analyzeLines, benchmark, BENCHMARK_MAX_UNMATCHED_RATE } from "./benchmark.js";
+export type { RunStats, BenchmarkResult } from "./benchmark.js";
+export { BETA_BASELINE, BETA_FAMILY_COUNTS, sharesFromCounts } from "./baselines/eql-beta-2026-07.js";
 export {
   EntityResolver,
   ATTRIBUTION_MIN_CONFIDENCE,
