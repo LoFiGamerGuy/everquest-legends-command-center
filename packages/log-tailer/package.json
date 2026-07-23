@@ -1,0 +1,18 @@
+{
+  "name": "@eqlcc/log-tailer",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Log discovery and resumable byte-offset tailing for EQL Command Center: find eqlog_<Character>_<server>.txt files and stream complete lines with offsets. Node builtins only; never persists offsets itself.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "engines": { "node": ">=22" }
+}

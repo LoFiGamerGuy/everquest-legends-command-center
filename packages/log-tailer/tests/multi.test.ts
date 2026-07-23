@@ -1,0 +1,147 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import { TailManager, type ManagedLineBatch, type ManagedTruncationEvent } from "../src/index.js";
+import { append, makeTmpDir, rmDirs, sleep, waitFor } from "./helpers.js";
+
+const POLL = 20;
+
+const dirs: string[] = [];
+const managers: TailManager[] = [];
+afterEach(() => {
+  for (const m of managers.splice(0)) m.stop();
+  rmDirs(dirs);
+});
+
+function makeManager(options: Omit<ConstructorParameters<typeof TailManager>[0], "tailer">): TailManager {
+  const manager = new TailManager({ ...options, tailer: { pollIntervalMs: POLL } });
+  managers.push(manager);
+  return manager;
+}
+
+function recordManager(manager: TailManager) {
+  const batches: ManagedLineBatch[] = [];
+  const truncations: ManagedTruncationEvent[] = [];
+  manager.on("lines", (b) => batches.push(b));
+  manager.on("truncated", (t) => truncations.push(t));
+  return {
+    batches,
+    truncations,
+    linesOf: (fileId: string) =>
+      batches.filter((b) => b.fileId === fileId).flatMap((b) => b.lines.map((l) => l.line)),
+  };
+}
+
+/** Create a log file and backdate its mtime by `ageSec`. */
+function makeLog(dir: string, character: string, server: string, ageSec: number): string {
+  const p = path.join(dir, `eqlog_${character}_${server}.txt`);
+  fs.writeFileSync(p, "");
+  const t = Date.now() / 1000 - ageSec;
+  fs.utimesSync(p, t, t);
+  return p;
+}
+
+describe("TailManager", () => {
+  it("tails only the N most recently modified files, with the absolute path as a stable fileId", async () => {
+    const dir = makeTmpDir(dirs);
+    const oldest = makeLog(dir, "Playerone", "erudin", 300);
+    const middle = makeLog(dir, "Playertwo", "freeport", 200);
+    const newest = makeLog(dir, "Playerthree", "neriak", 100);
+    fs.writeFileSync(path.join(dir, "dbg.txt"), "unrelated");
+
+    const manager = makeManager({ logsDir: dir, maxFiles: 2 });
+    const rec = recordManager(manager);
+    manager.start();
+
+    expect(new Set(manager.files().keys())).toEqual(new Set([newest, middle]));
+    expect(manager.files().get(newest)?.character).toBe("Playerthree");
+
+    append(newest, "n1\n");
+    append(middle, "m1\n");
+    append(oldest, "o1\n"); // NOT tailed — must never surface
+
+    await waitFor(() => rec.batches.length >= 2, "batches from both tailed files");
+    await sleep(POLL * 3); // grace period in which the oldest file could wrongly appear
+    expect(rec.linesOf(newest)).toEqual(["n1"]);
+    expect(rec.linesOf(middle)).toEqual(["m1"]);
+    expect(rec.linesOf(oldest)).toEqual([]);
+    expect(rec.batches.every((b) => b.file.path === b.fileId)).toBe(true);
+  });
+
+  it("starts each file at the offset the caller resolves (stored watermark)", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = makeLog(dir, "Playerone", "erudin", 0);
+    fs.writeFileSync(file, "seen-1\nseen-2\nunseen\n");
+    const stored = Buffer.byteLength("seen-1\nseen-2\n");
+
+    const manager = makeManager({
+      logsDir: dir,
+      resolveStartOffset: (f) => (f.path === file ? stored : 0),
+    });
+    const rec = recordManager(manager);
+    manager.start();
+
+    await waitFor(() => rec.linesOf(file).length >= 1, "resumed line");
+    expect(rec.linesOf(file)).toEqual(["unseen"]); // nothing before the watermark re-emitted
+    expect(rec.batches[0]!.lines[0]!.byteOffset).toBe(stored);
+    expect(manager.watermarkOf(file)).toBe(stored + Buffer.byteLength("unseen\n"));
+  });
+
+  it("propagates truncation events tagged with the fileId", async () => {
+    const dir = makeTmpDir(dirs);
+    const file = makeLog(dir, "Playerone", "erudin", 0);
+    fs.writeFileSync(file, "a\nb\n");
+
+    const manager = makeManager({ logsDir: dir });
+    const rec = recordManager(manager);
+    manager.start();
+    await waitFor(() => rec.linesOf(file).length >= 2, "initial lines");
+
+    fs.truncateSync(file, 0);
+    await waitFor(() => rec.truncations.length >= 1, "manager truncation event");
+    expect(rec.truncations[0]).toMatchObject({ fileId: file, previousWatermark: 4, newLength: 0 });
+  });
+
+  it("rescan() picks up files that appear later, without disturbing live tails", async () => {
+    const dir = makeTmpDir(dirs);
+    const first = makeLog(dir, "Playerone", "erudin", 100);
+
+    const manager = makeManager({ logsDir: dir });
+    const rec = recordManager(manager);
+    manager.start();
+    expect([...manager.files().keys()]).toEqual([first]);
+
+    const second = makeLog(dir, "Playertwo", "freeport", 0);
+    const added = manager.rescan();
+    expect(added.map((f) => f.path)).toEqual([second]);
+    expect(new Set(manager.files().keys())).toEqual(new Set([first, second]));
+
+    append(second, "hello\n");
+    await waitFor(() => rec.linesOf(second).length >= 1, "line from rescanned file");
+    expect(rec.linesOf(second)).toEqual(["hello"]);
+  });
+
+  it("stop() halts every tailer: appends afterwards emit nothing", async () => {
+    const dir = makeTmpDir(dirs);
+    const a = makeLog(dir, "Playerone", "erudin", 0);
+    const b = makeLog(dir, "Playertwo", "freeport", 0);
+
+    const manager = makeManager({ logsDir: dir });
+    const rec = recordManager(manager);
+    manager.start();
+    append(a, "a1\n");
+    await waitFor(() => rec.linesOf(a).length >= 1, "pre-stop line");
+
+    manager.stop();
+    manager.stop(); // idempotent
+    expect(manager.isRunning).toBe(false);
+    expect(manager.files().size).toBe(0);
+
+    append(a, "a2\n");
+    append(b, "b1\n");
+    await sleep(POLL * 5);
+    expect(rec.batches.flatMap((x) => x.lines.map((l) => l.line))).toEqual(["a1"]);
+  });
+});

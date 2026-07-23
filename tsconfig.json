@@ -4,6 +4,7 @@
   "references": [
     { "path": "./packages/event-schema" },
     { "path": "./packages/log-parser" },
+    { "path": "./packages/log-tailer" },
     { "path": "./tsconfig.tools.json" }
   ]
 }
