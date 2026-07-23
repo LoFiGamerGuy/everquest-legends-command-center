@@ -21,5 +21,8 @@ Pet→owner links: pet_chatter 0.95 / damage_shield_possessive 0.7 / name_patter
 ## ADR-007 · 2026-07-22 · MIT license
 Compatible with adapting MIT (eql-meter) and Apache-2.0 (rumstil, kauffman12) sources with attribution; maximizes community reuse.
 
+## ADR-009 · 2026-07-23 · Beta-NDA caution lifted after owner review
+The owner reviewed the beta agreement he actually accepted and confirmed no surviving restrictions apply to this project's use of beta-derived data. LEGAL Q1 resolved; beta-corpus fixtures usable/publishable under standing anonymization + no-binary-derived-content rules. Launch-client regeneration downgraded from compliance requirement to good practice.
+
 ## ADR-008 · 2026-07-22 · Publication boundary
 Public repo/releases contain no game-binary-derived data. data/ gitignored. Binary-inventory scripts are owner research tools, not shipped features. Regenerate reference data from launch client post-2026-07-28 (beta NDA uncertainty, Q1).
