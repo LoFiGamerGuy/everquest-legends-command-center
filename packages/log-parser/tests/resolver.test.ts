@@ -306,6 +306,35 @@ describe("EntityResolver — user assertions (Verified Players / Verified Pets)"
     expect(r.get("Petone")?.ownerLink?.active).toBe(false);
     expect(r.get("Petone")?.ownerLink?.evidence.length).toBeGreaterThan(0);
   });
+
+  it("MAJOR (round-2): a non-pet assertion BLOCKS a later heuristic from creating an owner link", () => {
+    const r = new EntityResolver({ owner: { character: "Playerone" } });
+    // name_pattern classifies the entity as pet, but NO owner link yet.
+    r.observe(meleeHit(GEN_PET, "a greater skeleton"));
+    expect(r.get(GEN_PET)?.ownerLink).toBeUndefined();
+    // User overrides: this is actually a player (e.g. a same-named group member).
+    r.setEntityKind(GEN_PET, "player", { asserted: true });
+
+    // Later owner signals (chatter, then DS) must NOT create/activate a link.
+    r.recordOwnerSignal(GEN_PET, "you", "pet_chatter");
+    r.observe(damageShield("a greater skeleton", GEN_PET));
+
+    expect(r.resolve(GEN_PET).kind).toBe("player");
+    expect(r.resolve(GEN_PET).ownerId).toBeUndefined();
+    const link = r.get(GEN_PET)?.ownerLink;
+    expect(link === undefined || link.active === false).toBe(true);
+    expect(r.attributeSource(meleeHit(GEN_PET, "a skeleton")).rolledUp).toBe(false);
+
+    // Unchanged after a snapshot round-trip.
+    const revived = EntityResolver.fromSnapshot(JSON.parse(JSON.stringify(r.toSnapshot())));
+    expect(revived.resolve(GEN_PET).kind).toBe("player");
+    expect(revived.resolve(GEN_PET).ownerId).toBeUndefined();
+    const rLink = revived.get(GEN_PET)?.ownerLink;
+    expect(rLink === undefined || rLink.active === false).toBe(true);
+    // A further heuristic after reload still cannot create an active link.
+    revived.recordOwnerSignal(GEN_PET, "you", "pet_chatter");
+    expect(revived.resolve(GEN_PET).ownerId).toBeUndefined();
+  });
 });
 
 describe("EntityResolver — snapshot persistence (survives reload)", () => {

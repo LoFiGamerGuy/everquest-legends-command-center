@@ -316,9 +316,11 @@ export class EntityResolver {
       return { canonical, kind: "unknown", confidence: 0, evidence: [] };
     }
     const evidence = [...rec.kindEvidence, ...(rec.ownerLink?.evidence ?? [])];
-    // Only surface an owner when the link is active (a user reclassification to a
-    // non-pet kind deactivates it; the evidence stays for the audit trail).
-    const activeLink = rec.ownerLink !== undefined && rec.ownerLink.active ? rec.ownerLink : undefined;
+    // Only surface an owner when the entity is currently a pet AND the link is
+    // active. A user reclassification to a non-pet kind (which also deactivates
+    // the link) never exposes a pet-owner fact; the evidence stays for audit.
+    const activeLink =
+      rec.kind === "pet" && rec.ownerLink !== undefined && rec.ownerLink.active ? rec.ownerLink : undefined;
     return {
       canonical: rec.canonical,
       kind: rec.kind,
@@ -543,6 +545,20 @@ export class EntityResolver {
     // Guarantee the owner entity exists so the link never dangles (FK integrity).
     if (!this.entities.has(ownerId)) this.registerEntity(ownerId);
     const row = evidenceRow(evidenceType, confidence, meta);
+
+    // A user assertion that the candidate is NOT a pet suppresses heuristic
+    // ownership entirely: a later pet_chatter/DS signal must not create or revive
+    // an owner link (or resolve() would surface a pet-owner fact the user denied).
+    // The signal is still retained for audit — in kindEvidence (pushed by
+    // applyKind before this call) and, when a prior link exists, in its evidence.
+    if (!asserted && rec.classificationSource === "user" && rec.kind !== "pet") {
+      if (rec.ownerLink !== undefined) {
+        rec.ownerLink.evidence.push(row);
+        rec.ownerLink.active = false;
+      }
+      return;
+    }
+
     const link = rec.ownerLink;
     if (link === undefined) {
       rec.ownerLink = {
