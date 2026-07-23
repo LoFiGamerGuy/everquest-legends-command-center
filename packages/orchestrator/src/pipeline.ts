@@ -62,7 +62,11 @@ import {
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { loadResolverSnapshot, pipelineMigrations, saveResolverSnapshot } from "./resolver-store.js";
+import {
+  ensureResolverSnapshotTable,
+  loadResolverSnapshot,
+  saveResolverSnapshot,
+} from "./resolver-store.js";
 
 /** Which driving mode a pipeline instance has been committed to. */
 export type PipelineMode = "idle" | "replay" | "live";
@@ -82,8 +86,17 @@ export interface IngestPipelineOptions {
   encoding?: LogEncoding;
   /** LogTailer options for live mode. */
   tailer?: LogTailerOptions;
-  /** Notified when the tailer detects truncation/rotation in live mode (deferred handling; see class doc). */
+  /** Notified when the tailer detects truncation/rotation in live mode (live HALTS; see class doc). */
   onTruncation?: (info: TruncationEvent) => void;
+  /**
+   * Live mode: notified when a batch commit (or the tailer consumer path) throws.
+   * The pipeline STOPS itself before calling this (see startLive) — a throwing
+   * commit would otherwise be retried forever by the tailer with the watermark
+   * frozen (corruption-safe via rollback, but an invisible liveness wedge).
+   */
+  onConsumerError?: (error: Error) => void;
+  /** Live mode: notified of a (non-fatal, informational) tailer file-I/O `error`. Tailing continues. */
+  onError?: (error: Error) => void;
 }
 
 /** Result of committing one batch (events + watermark + resolver snapshot). */
@@ -161,8 +174,13 @@ export class IngestPipeline {
   init(): void {
     if (this.initialized) return;
     const db = this.options.db ?? openDatabase(this.options.dbPath ?? ":memory:");
-    // Base schema + resolver_snapshot, forward-only, transactional, idempotent.
-    migrate(db, { migrations: pipelineMigrations() });
+    // Base schema via the central forward-only migration chain...
+    migrate(db);
+    // ...then the resolver_snapshot cache table, created idempotently OUTSIDE the
+    // migration chain so it never bumps schema_version past the central registry
+    // (which would make @eqlcc/database's migrate(db) refuse to open the DB). See
+    // resolver-store module doc; #20 formalizes it as a numbered migration.
+    ensureResolverSnapshotTable(db);
 
     const logFileId = upsertLogFile(db, this.options.logFile);
     const watermark = getWatermark(db, logFileId);
@@ -279,11 +297,28 @@ export class IngestPipeline {
     const tailer = new LogTailer(this.options.logFile.path, this.options.tailer ?? {});
     tailer.on("lines", (batch: LineBatch) => this.ingestTailerBatch(batch));
     tailer.on("truncated", (info: TruncationEvent) => {
-      // Deferred (see class doc / report): truncation mid-live needs a DB
-      // watermark + parser/resolver reset that edges into #20 rotation semantics.
-      // Surface it so a caller can react; do not silently re-ingest against the
-      // old watermark (ingestEvents would reject a changed line at a live offset).
+      // Live mode HALTS on truncation/rotation. Resetting the DB watermark +
+      // parser/resolver to re-read from offset 0 is #20 rotation-reset territory;
+      // until then we STOP cleanly and surface it, rather than let the tailer
+      // re-read offset 0 into a provenance-rejecting commit that would then wedge
+      // on retry. Stopping here bumps the tailer generation so the current pass
+      // does not proceed to re-read the reset offset.
+      this.stop();
       this.options.onTruncation?.(info);
+    });
+    tailer.on("consumer-error", (error: Error) => {
+      // A batch commit threw (e.g. a genuine append-only provenance rejection).
+      // The tailer has already rewound and would otherwise RETRY THE IDENTICAL
+      // FAILING BATCH FOREVER with the watermark frozen (corruption-safe via
+      // rollback, but an invisible liveness wedge). Stop to break the spin, then
+      // surface it to the caller.
+      this.stop();
+      this.options.onConsumerError?.(error);
+    });
+    tailer.on("error", (error: Error) => {
+      // Informational tailer file-I/O error; the tailer retries transient cases
+      // itself and never aborts on this channel, so we only surface it.
+      this.options.onError?.(error);
     });
     this.tailer = tailer;
     // firstLineNo = startSeq + 1 keeps tailer lineNo in lockstep with parser seq.

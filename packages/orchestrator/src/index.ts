@@ -16,8 +16,7 @@ export type {
   ReplayResult,
 } from "./pipeline.js";
 export {
+  ensureResolverSnapshotTable,
   loadResolverSnapshot,
-  pipelineMigrations,
-  resolverSnapshotMigration,
   saveResolverSnapshot,
 } from "./resolver-store.js";

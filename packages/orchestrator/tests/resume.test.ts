@@ -142,6 +142,10 @@ describe("IngestPipeline — durable resume determinism (issue #19 headline)", (
     // (b) Force a full re-read of the SAME bytes (rewind the watermark) to exercise
     // the ingestion idempotency guard directly: every line collides on
     // (log_file_id, byte_offset) and is dropped, none duplicated, content unchanged.
+    // NOTE: rewinding log_files.byte_offset WITHOUT also clearing resolver_snapshot
+    // is an UNSUPPORTED manual operation — done here only to re-drive already-
+    // persisted bytes through ingestEvents and prove event-row idempotency; it is
+    // not a real resume path.
     db.prepare("UPDATE log_files SET byte_offset = 0, seq = 0 WHERE id = ?").run(first.logFileId);
     const reread = new IngestPipeline({ db, logFile: logFileInput(logPath) });
     const rereadResult = reread.replay();

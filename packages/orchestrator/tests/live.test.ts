@@ -70,6 +70,50 @@ describe("IngestPipeline — live mode", () => {
     expect(allEvents(db, live.logFileId)).toEqual(baseline);
   });
 
+  it("delivers a live commit failure to onConsumerError and STOPS (no infinite retry)", async () => {
+    const { logPath, cleanup } = writeTempLog(fullText());
+    cleanups.push(cleanup);
+    const db = freshDb();
+
+    // Register the file, then pre-seed a DIFFERENT event at byte offset 0 while
+    // leaving the watermark at 0. The first live batch will re-parse line 1 at
+    // offset 0 and ingestEvents will reject it (append-only provenance mismatch),
+    // making the batch commit throw.
+    const seeder = new IngestPipeline({ db, logFile: logFileInput(logPath) });
+    seeder.init();
+    const logFileId = seeder.logFileId;
+    db.prepare(
+      `INSERT INTO events (log_file_id, seq, byte_offset, raw, ts, type, payload, dialect_id, rule_id)
+       VALUES (?, 1, 0, 'TAMPERED PROVENANCE', 1, 'raw_unknown', '{}', 'eql-beta-2026-07', NULL)`,
+    ).run(logFileId);
+
+    let consumerErrCalls = 0;
+    let lastError: Error | undefined;
+    const live = new IngestPipeline({
+      db,
+      logFile: logFileInput(logPath),
+      tailer: { pollIntervalMs: 5, useFsWatch: false },
+      onConsumerError: (error) => {
+        consumerErrCalls += 1;
+        lastError = error;
+      },
+    });
+    pipelines.push(live);
+
+    live.startLive();
+
+    await waitFor(() => consumerErrCalls >= 1);
+    expect(lastError).toBeInstanceOf(Error);
+
+    // Liveness: the pipeline stopped itself on the failing commit, so after many
+    // more poll windows the error was delivered EXACTLY ONCE — it is not spinning
+    // on the identical failing batch forever.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(consumerErrCalls).toBe(1);
+    // The watermark never advanced past the frozen point (batch rolled back).
+    expect(live.watermark().byteOffset).toBe(0);
+  });
+
   it("resumes live tailing from the persisted watermark after a clean stop", async () => {
     const baseline = replayBaseline();
 
