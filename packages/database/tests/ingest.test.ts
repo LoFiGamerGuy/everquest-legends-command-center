@@ -1,6 +1,7 @@
+import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";
 import { describe, expect, it } from "vitest";
 
-import { getWatermark, ingestEvents } from "../src/index.js";
+import { getWatermark, ingestEvents, upsertLogFile } from "../src/index.js";
 
 import { freshDb, meleeHit, sampleBatch } from "./helpers.js";
 
@@ -119,6 +120,50 @@ describe("ingestEvents", () => {
 
     expect(eventCount(db, logFileId)).toBe(countBefore);
     expect(getWatermark(db, logFileId)).toEqual(before);
+  });
+
+  it("throws when a byte_offset replay changes only the typed payload (stale source-of-truth guard)", () => {
+    // MAJOR (round 3): same offset/seq/raw/ts/type but a changed typed field
+    // (amount) must not be treated as idempotent — events.payload is the source
+    // of truth and would otherwise go stale while the watermark advances.
+    const { db, logFileId } = freshDb();
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, logFileId, events, watermark);
+    const before = getWatermark(db, logFileId);
+    const countBefore = eventCount(db, logFileId);
+
+    // Re-ingest byte 220 / seq 3 with identical provenance but a different amount.
+    const original = events[2]!;
+    const changed = { ...original, amount: 999 };
+    expect(() => ingestEvents(db, logFileId, [changed])).toThrow(/different event|provenance/i);
+
+    expect(eventCount(db, logFileId)).toBe(countBefore);
+    expect(getWatermark(db, logFileId)).toEqual(before);
+  });
+
+  it("rejects a batch containing an event tagged for another log file and touches neither", () => {
+    // MAJOR (round 3): an event tagged file B ingested under file A must not
+    // advance A's (or B's) watermark or write any rows.
+    const { db, logFileId: fileA } = freshDb();
+    const fileB = upsertLogFile(db, {
+      path: "/logs/eqlog_Playertwo_freeport.txt",
+      characterName: "Playertwo",
+      server: "freeport",
+      dialectId: DIALECT_EQL_BETA_2026_07,
+    });
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, fileA, events, watermark);
+    const beforeA = getWatermark(db, fileA);
+    const countA = eventCount(db, fileA);
+
+    // A batch for file A that sneaks in an event tagged file B.
+    const mixed = [meleeHit(4, 300), meleeHit(5, 360, { logFileId: fileB })];
+    expect(() => ingestEvents(db, fileA, mixed)).toThrow(/across files/i);
+
+    expect(eventCount(db, fileA)).toBe(countA);
+    expect(getWatermark(db, fileA)).toEqual(beforeA);
+    expect(eventCount(db, fileB)).toBe(0);
+    expect(getWatermark(db, fileB)).toEqual({ byteOffset: 0, seq: 0 });
   });
 
   it("rejects a non-empty watermark for an empty batch and does not move the watermark", () => {

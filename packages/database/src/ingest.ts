@@ -122,7 +122,7 @@ const ADVANCE_WATERMARK_SQL = `UPDATE log_files
   WHERE id = @id`;
 
 /** Immutable provenance of an already-persisted event at a given byte offset. */
-const EXISTING_EVENT_SQL = `SELECT seq, raw, ts, type, dialect_id AS dialectId, rule_id AS ruleId
+const EXISTING_EVENT_SQL = `SELECT seq, raw, ts, type, dialect_id AS dialectId, rule_id AS ruleId, payload
   FROM events WHERE log_file_id = ? AND byte_offset = ?`;
 
 interface ExistingProvenance {
@@ -132,6 +132,8 @@ interface ExistingProvenance {
   type: string;
   dialectId: string;
   ruleId: string | null;
+  /** Serialized source-of-truth JSON (the full typed event). */
+  payload: string;
 }
 
 /**
@@ -141,10 +143,13 @@ interface ExistingProvenance {
  * a genuine byte-offset replay is idempotent, but ANY other constraint
  * violation — notably a duplicate `seq` at a different byte offset — THROWS and
  * rolls the whole batch back, so a line can never be silently dropped
- * (append-only / lossless, ARCHITECTURE.md §4). When a byte-offset conflict
- * suppresses a row, the persisted line's immutable provenance (`seq`, `raw`,
- * `ts`, `type`, `dialect_id`, `rule_id`) must match the incoming event — a
- * rewritten line at an existing offset is rejected, not silently absorbed.
+ * (append-only / lossless, ARCHITECTURE.md §4). Every event must be tagged for
+ * `logFileId` (a cross-file event is rejected before any write, so the wrong
+ * file's watermark can never move). When a byte-offset conflict suppresses a
+ * row, the persisted line's immutable provenance (`seq`, `raw`, `ts`, `type`,
+ * `dialect_id`, `rule_id`, and the serialized `payload`) must match the incoming
+ * event — a rewritten line at an existing offset is rejected, not silently
+ * absorbed.
  *
  * The watermark UPDATE must affect exactly one row; if it does not, the batch
  * rolls back so events are never committed without their watermark.
@@ -180,6 +185,18 @@ export function ingestEvents(
     return { inserted: 0, watermark: getWatermark(db, logFileId) };
   }
 
+  // Cross-file guard: every event must belong to the file whose watermark we are
+  // about to move. A batch tagged for another file would advance the wrong
+  // resume point (and store the wrong file's provenance). Reject before any write.
+  for (const event of events) {
+    if (event.logFileId !== logFileId) {
+      throw new Error(
+        `@eqlcc/database: batch for log file ${logFileId} contains an event tagged log file ` +
+          `${event.logFileId} (seq ${event.seq}); refusing to ingest across files.`,
+      );
+    }
+  }
+
   const extent = batchExtent(events);
   const target = justifiedWatermark(extent, watermark);
 
@@ -191,6 +208,9 @@ export function ingestEvents(
     let inserted = 0;
     for (const event of events) {
       const ruleId = event.ruleId ?? null;
+      // Serialize once; reuse for the insert bind AND the replay comparison so a
+      // changed typed payload cannot slip through as "idempotent".
+      const payload = JSON.stringify(event);
       const info = insert.run({
         logFileId,
         seq: event.seq,
@@ -199,7 +219,7 @@ export function ingestEvents(
         ts: event.ts,
         type: event.type,
         value: primaryValue(event),
-        payload: JSON.stringify(event),
+        payload,
         dialectId: event.dialectId,
         ruleId,
       });
@@ -209,8 +229,9 @@ export function ingestEvents(
       }
       // A byte-offset conflict suppressed the row (ON CONFLICT DO NOTHING). A
       // true replay is idempotent, but the persisted line's immutable provenance
-      // MUST match: otherwise we'd silently absorb a rewritten line (and its
-      // watermark move) at that offset. Reject the whole batch instead.
+      // MUST match — including the serialized payload (source-of-truth JSON) —
+      // otherwise we'd silently absorb a rewritten line (and its watermark move)
+      // at that offset. Reject the whole batch instead.
       const prior = existing.get(logFileId, event.byteOffset) as ExistingProvenance | undefined;
       if (
         prior === undefined ||
@@ -219,7 +240,8 @@ export function ingestEvents(
         prior.ts !== event.ts ||
         prior.type !== event.type ||
         prior.dialectId !== event.dialectId ||
-        prior.ruleId !== ruleId
+        prior.ruleId !== ruleId ||
+        prior.payload !== payload
       ) {
         throw new Error(
           `@eqlcc/database: byte offset ${event.byteOffset} in log file ${logFileId} already holds ` +
