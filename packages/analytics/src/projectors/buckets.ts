@@ -18,19 +18,33 @@ const UPSERT = `INSERT INTO encounter_buckets (encounter_id, entity_id, bucket_t
     healing = healing + @healing`;
 
 export function createBucketsProjector(): Projector {
+  // Per-pass cache of an encounter's known enemy (primary_target_entity_id), so
+  // the enemy's own output is never bucketed as ally damage/healing (MAJOR 2).
+  const enemyCache = new Map<number, number | null>();
+  function enemyOf(ctx: PassContext, encounterId: number): number | null {
+    const cached = enemyCache.get(encounterId);
+    if (cached !== undefined) return cached;
+    const row = ctx.db
+      .prepare("SELECT primary_target_entity_id AS e FROM encounters WHERE id = ?")
+      .get(encounterId) as { e: number | null } | undefined;
+    const enemyId = row?.e ?? null;
+    enemyCache.set(encounterId, enemyId);
+    return enemyId;
+  }
+
   return {
     name: "encounter_buckets",
     version: 1,
     tablesOwned: ["encounter_buckets"],
 
     load(): void {
-      /* no in-memory state */
+      enemyCache.clear();
     },
 
     apply(ctx: PassContext, pe: PassEvent): void {
       const encounterId = pe.encounterId;
       if (encounterId === null) return;
-      const c = analyzeContribution(ctx, pe.event);
+      const c = analyzeContribution(ctx, pe.event, enemyOf(ctx, encounterId));
       if (c === null || c.isMiss) return;
       const damage = c.isHeal ? 0 : c.amount;
       const healing = c.isHeal ? c.amount : 0;

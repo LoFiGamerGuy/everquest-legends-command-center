@@ -53,9 +53,13 @@ kept (ids are re-derived deterministically and are referenced by
   trailing encounter mirrors the trailing open session. Close is realized only
   when a later event proves the timeout elapsed. A completed log can be closed
   out with the optional, explicitly-not-core `finalizeEncounters(db, asOfTs?)`.
-- **Ally identification** is resolver-driven: the enemy is the NPC/article-led
-  side (or an `unknown` the owner attacks — a named boss); everyone else on the
-  line is an ally (group-wide, ADR-4), including not-yet-classified group members.
+- **Ally identification**: a fresh line's enemy is the NPC/article-led side (or
+  an `unknown` the owner attacks — a named boss); everyone else on the line is an
+  ally (group-wide, ADR-4), including not-yet-classified group members. Once an
+  encounter has a known enemy, THAT enemy identity — not resolver kind — drives
+  attach and ally/enemy roles: the enemy's own damage/heals are never booked as
+  ally output, and a later ally line against the already-open named target (both
+  sides resolver-`unknown`) attaches to that encounter rather than being dropped.
   Only the log owner's pets fold to an owner (the resolver links pets to "you");
   other players' pets self-credit. Stance/invocation-at-start is bound by the
   opener event's id — i.e. `(log_file_id, seq)`, the canonical order, never `ts`

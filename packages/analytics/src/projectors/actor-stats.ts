@@ -19,6 +19,8 @@ interface StartState {
   startedTs: number;
   stance: string | null;
   invocation: string | null;
+  /** The encounter's known enemy (primary_target_entity_id); never booked as an ally. */
+  enemyId: number | null;
 }
 
 const UPSERT = `INSERT INTO encounter_actor_stats
@@ -47,8 +49,8 @@ export function createActorStatsProjector(): Projector {
     const cached = startCache.get(encounterId);
     if (cached !== undefined) return cached;
     const enc = ctx.db
-      .prepare("SELECT started_ts FROM encounters WHERE id = ?")
-      .get(encounterId) as { started_ts: number } | undefined;
+      .prepare("SELECT started_ts, primary_target_entity_id FROM encounters WHERE id = ?")
+      .get(encounterId) as { started_ts: number; primary_target_entity_id: number | null } | undefined;
     // The encounter's opener is the lowest-id event attached to it. Bound the
     // stance/invocation lookup by that event id — i.e. by (log_file_id, seq)
     // order, NOT ts alone (ordering amendment) — so a same-second stance change
@@ -61,6 +63,7 @@ export function createActorStatsProjector(): Projector {
       startedTs: enc?.started_ts ?? 0,
       stance: latestStringField(ctx, "stance_change", "stance", logFileId, openerId),
       invocation: latestStringField(ctx, "invocation_change", "invocation", logFileId, openerId),
+      enemyId: enc?.primary_target_entity_id ?? null,
     };
     startCache.set(encounterId, state);
     return state;
@@ -79,9 +82,9 @@ export function createActorStatsProjector(): Projector {
       const encounterId = pe.encounterId;
       if (encounterId === null) return;
 
-      const contribution = analyzeContribution(ctx, pe.event);
+      const start = startStateFor(ctx, encounterId, pe.event.logFileId);
+      const contribution = analyzeContribution(ctx, pe.event, start.enemyId);
       if (contribution !== null) {
-        const start = startStateFor(ctx, encounterId, pe.event.logFileId);
         const k = contribution.damageKind;
         const dmg = contribution.isMiss || contribution.isHeal ? 0 : contribution.amount;
         ctx.db.prepare(UPSERT).run({

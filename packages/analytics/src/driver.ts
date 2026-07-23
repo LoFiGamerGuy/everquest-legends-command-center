@@ -165,6 +165,7 @@ function runPass(
   for (let i = 0; i < rows.length; i += options.batchSize) {
     const chunk = rows.slice(i, i + options.batchSize);
     runInTx(db, () => {
+      const advanced = new Set<RuntimeState>();
       for (const row of chunk) {
         // payload is trusted data written by the @eqlcc/event-schema serializer
         // at ingestion (the typed LogEvent), so a plain parse+cast is safe here.
@@ -180,25 +181,24 @@ function runPass(
           if (row.id > rs.lastEventId) {
             rs.projector.apply(ctx, pe);
             rs.lastEventId = row.id;
+            advanced.add(rs);
           }
         }
         head = row.id;
         processed += 1;
       }
-      // Finalize (entities sync the resolver's kind/link state) and advance the
-      // watermark IN THE SAME TRANSACTION as this chunk's writes — the watermark
-      // is never committed without the entity/link rows it implies (a crash
-      // rolls back both together).
-      for (const rs of runtime) rs.projector.finalize?.(ctx);
-      for (const rs of runtime) stmtState.run(rs.lastEventId, rs.projector.name);
-    });
-  }
-
-  // No new events: still resync entities from the (replayed) resolver so a
-  // no-op update at head stays consistent. No watermark moves here.
-  if (rows.length === 0) {
-    runInTx(db, () => {
-      for (const rs of runtime) rs.projector.finalize?.(ctx);
+      // Finalize + advance the watermark ONLY for projectors that actually
+      // processed events in this chunk, IN THE SAME TRANSACTION as their writes.
+      // A projector already at head (e.g. entities during a downstream-only
+      // version bump) is not finalized/re-committed here — so its watermark is
+      // never advanced/re-committed while its finalize (entity/link sync) reflects
+      // only a partial resolver replay (review MAJOR 1).
+      for (const rs of runtime) {
+        if (advanced.has(rs)) rs.projector.finalize?.(ctx);
+      }
+      for (const rs of runtime) {
+        if (advanced.has(rs)) stmtState.run(rs.lastEventId, rs.projector.name);
+      }
     });
   }
 

@@ -61,12 +61,12 @@ export function isAllySide(ctx: PassContext, canonical: string): boolean {
 }
 
 /** The two named combat sides for an enemy-bearing event, canonicalized. */
-interface Sides {
+export interface Sides {
   a: string | null;
   b: string;
 }
 
-function combatSides(ctx: PassContext, event: LogEvent): Sides | null {
+export function combatSides(ctx: PassContext, event: LogEvent): Sides | null {
   switch (event.type) {
     case "melee_hit":
     case "melee_miss":
@@ -155,11 +155,19 @@ function damageKindOf(event: LogEvent): DamageKind | null {
 
 /**
  * The stat contribution of an event, credited to the attributed ally actor, or
- * null when the event is not an ally contribution (enemy damage, unknown source,
- * non-combat). Uses the resolver's `attributeSource` for the pet→owner fold and
- * its direction guards (e.g. a damage shield burning the owner never rolls up).
+ * null when the event is not an ally contribution. `enemyEntityId` is the
+ * CURRENT encounter's `primary_target_entity_id`: the encounter's known enemy is
+ * NEVER booked as ally output — a named boss's outgoing damage/heals (which the
+ * resolver classifies `unknown`, hence ally-side) must not pollute actor stats
+ * (review MAJOR 2). Role therefore comes from the encounter's enemy identity, not
+ * resolver kind alone. Uses `attributeSource` for the pet→owner fold and its
+ * direction guards (e.g. a damage shield burning the owner never rolls up).
  */
-export function analyzeContribution(ctx: PassContext, event: LogEvent): Contribution | null {
+export function analyzeContribution(
+  ctx: PassContext,
+  event: LogEvent,
+  enemyEntityId: number | null,
+): Contribution | null {
   const kind = event.type;
   const isMiss = kind === "melee_miss";
   const isHeal = kind === "heal";
@@ -171,6 +179,9 @@ export function analyzeContribution(ctx: PassContext, event: LogEvent): Contribu
   if (!isAllySide(ctx, attribution.attributedId)) return null;
 
   const actorId = ctx.entities.idFor(attribution.sourceId);
+  // The encounter's known enemy is never an ally actor, even when the resolver
+  // left it `unknown` (a named boss). Its damage/heals are dropped here.
+  if (enemyEntityId !== null && actorId === enemyEntityId) return null;
   const attribOwnerId =
     attribution.rolledUp && attribution.ownerId !== undefined
       ? ctx.entities.idFor(attribution.ownerId)

@@ -9,9 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { updateProjections } from "../src/index.js";
+import { rebuildProjections, updateProjections } from "../src/index.js";
 import { groupFightScenario } from "./fixtures.js";
-import { freshDb, insertEvents } from "./support.js";
+import { freshDb, insertEvents, snapshotJson } from "./support.js";
 
 describe("watermark ⇄ entity/link same-transaction consistency", () => {
   it("a committed watermark implies synced entity kinds and the pet link", () => {
@@ -56,5 +56,35 @@ describe("watermark ⇄ entity/link same-transaction consistency", () => {
     ).map((r) => r.id);
     // A single stable link with a stable id (never delete+reinserted to a new id).
     expect(ids).toEqual([1]);
+  });
+
+  it("a downstream-only version bump does not re-run entities.finalize per chunk", () => {
+    // entities stays at head while `sessions` (and everything downstream) rebuilds
+    // from 0. With a 1-event batch (pet evidence lands mid-stream), entities must
+    // NOT be finalized/re-committed each chunk against a partial resolver replay:
+    // its watermark and entity/link rows stay consistent, and the whole state
+    // re-derives identically to the pre-bump rebuild.
+    const events = groupFightScenario().events;
+    const { db } = freshDb();
+    insertEvents(db, events);
+    rebuildProjections(db);
+    const before = snapshotJson(db);
+    const entitiesWmBefore = (
+      db.prepare("SELECT last_event_id AS v FROM projection_state WHERE projector = 'entities'").get() as {
+        v: number;
+      }
+    ).v;
+
+    db.prepare("UPDATE projection_state SET version = version + 1 WHERE projector = 'sessions'").run();
+    updateProjections(db, { batchSize: 1 });
+
+    expect(snapshotJson(db)).toBe(before);
+    // entities never advanced past head, so it was never finalized/re-committed.
+    const entitiesWmAfter = (
+      db.prepare("SELECT last_event_id AS v FROM projection_state WHERE projector = 'entities'").get() as {
+        v: number;
+      }
+    ).v;
+    expect(entitiesWmAfter).toBe(entitiesWmBefore);
   });
 });
