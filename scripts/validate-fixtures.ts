@@ -5,15 +5,15 @@
  *  - lines not matching the EQL timestamp shape
  * Exits 1 on violation. Runs in CI.
  */
-const fs = require("node:fs"); const path = require("node:path");
-const root = path.join(__dirname, "..", "tests", "fixtures");
+import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tests", "fixtures");
 const forbiddenFile = path.join(root, ".forbidden-names");
 const forbidden: string[] = fs.existsSync(forbiddenFile)
   ? fs.readFileSync(forbiddenFile, "utf8").split("\n").map((s: string) => s.trim()).filter(Boolean) : [];
 const TS = /^\[(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ 0-9]\d \d\d:\d\d:\d\d \d{4}\] /;
 let bad = 0;
 const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true })
-  .flatMap((e: any) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  .flatMap((e: fs.Dirent) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 for (const f of walk(root).filter(f => f.endsWith(".txt"))) {
   const lines = fs.readFileSync(f, "utf8").split("\n").filter(Boolean);
   lines.forEach((line: string, i: number) => {

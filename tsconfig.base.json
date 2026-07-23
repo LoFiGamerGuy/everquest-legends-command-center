@@ -1,0 +1,29 @@
+{
+  // Shared compiler options for all workspace packages (extend from here).
+  //
+  // Module strategy decision (M0-2 toolchain): "NodeNext" module + resolution.
+  // Rationale: the parser core and CLI must run directly in Node (ARCHITECTURE.md
+  // §4 process model), so we compile to real, spec-compliant ESM with explicit
+  // ".js" import specifiers. Bundlers (Vite for the Tauri webview, Vitest) also
+  // consume this output/source without issue, while "bundler" resolution would
+  // not guarantee Node-runnable emit. Revisit only if a package becomes
+  // bundler-only.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true
+  }
+}

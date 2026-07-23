@@ -1,0 +1,18 @@
+{
+  "name": "@eqlcc/event-schema",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Typed append-only event model for EQL Command Center: the LogEvent discriminated union, shared enums, and evidence/confidence constants. Zero runtime dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "engines": { "node": ">=22" }
+}

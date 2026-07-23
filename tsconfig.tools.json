@@ -1,0 +1,18 @@
+{
+  // Repo tooling outside the workspace packages (scripts/, vitest config),
+  // referenced from the root solution so `tsc -b` typechecks it too.
+  // Overrides: ESNext/Bundler because these files are ESM tooling executed via
+  // runners (tsx/vitest), not NodeNext-emitted package code; declarations-only
+  // emit to dist/tools (gitignored) purely to satisfy composite mode.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "rootDir": ".",
+    "outDir": "dist/tools",
+    "emitDeclarationOnly": true,
+    "types": ["node"]
+  },
+  "include": ["scripts", "vitest.config.ts"]
+}
