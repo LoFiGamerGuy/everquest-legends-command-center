@@ -26,8 +26,8 @@
 | Classification A–H | ✅ complete (see EQL_FILE_CLASSIFICATION.md) |
 | Manifest JSON + SQLite | ✅ complete |
 | Extension/largest/duplicates(size) reports | ✅ complete |
-| Hashing (SHA-256/MD5) | ⏳ pending — background job through the mounted-folder bridge proved unreliable; run `scripts/hash-eql-install.ps1` natively on Windows (resumable), then load into the sqlite manifest |
-| Duplicate confirmation by hash | ⏳ blocked on hashing |
+| Hashing (SHA-256) | ✅ complete 2026-07-23 — 12,745 files hashed natively (resumable slices); full hash list kept owner-side |
+| Duplicate confirmation by hash | ✅ complete 2026-07-23 — 730 duplicate groups, 1,017 redundant copies, ~145 MB (mostly music/UI assets shipped twice) |
 | Plaintext keyword sweep (`scripts/search-readable-resources.py`) | ⏳ scheduled — run against the 3,445 A/B/C files |
 | PE metadata pass (version/signature/imports — D files, 29) | ⏳ scheduled (local-only; COMPLIANCE #8–9) |
 | Archive metadata (E/F — identification only, no structural parsing) | ⏳ research notes only (COMPLIANCE #11) |
