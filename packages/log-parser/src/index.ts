@@ -15,6 +15,27 @@ export { LogParser } from "./parser.js";
 export type { ParserOptions } from "./parser.js";
 export { UnknownStats, normalizeShape } from "./unknown-stats.js";
 export type { UnknownShape } from "./unknown-stats.js";
+export {
+  EntityResolver,
+  ATTRIBUTION_MIN_CONFIDENCE,
+  parseLogFileName,
+  GENERATED_PET_NAME,
+  looksLikeGeneratedPetName,
+} from "./resolver/index.js";
+export type {
+  EntityResolverOptions,
+  LinkingEvidenceType,
+  Attribution,
+  ClassificationSource,
+  ConflictRecord,
+  EntityRecord,
+  EvidenceRow,
+  OwnerIdentity,
+  OwnerLink,
+  ResolvedEntity,
+  ResolverSnapshot,
+  SignalMeta,
+} from "./resolver/index.js";
 export { MELEE_VERBS_FIRST, MELEE_VERBS_THIRD, normalizeMissOutcome } from "./recognizers/melee.js";
 export { SELF_SPELL_EMOTES, SUBJECT_EMOTE_SUFFIXES } from "./recognizers/emote-data.js";
 export { SYSTEM_EXACT_MESSAGES } from "./recognizers/system-data.js";
