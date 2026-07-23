@@ -53,9 +53,10 @@ describe("ingestEvents", () => {
     const { db, logFileId } = freshDb();
     expect(getWatermark(db, logFileId)).toEqual({ byteOffset: 0, seq: 0 });
 
-    ingestEvents(db, logFileId, [meleeHit(7, 900)], { byteOffset: 960, seq: 7 });
+    // Line at byte 900 is 60 bytes long -> ends at 960, resume offset 961.
+    ingestEvents(db, logFileId, [meleeHit(7, 900)], { byteOffset: 961, seq: 7 });
 
-    expect(getWatermark(db, logFileId)).toEqual({ byteOffset: 960, seq: 7 });
+    expect(getWatermark(db, logFileId)).toEqual({ byteOffset: 961, seq: 7 });
   });
 
   it("advances the watermark forward-only and never regresses on replay of an older batch", () => {
@@ -63,20 +64,75 @@ describe("ingestEvents", () => {
     const { events, watermark } = sampleBatch();
     ingestEvents(db, logFileId, events, watermark);
 
-    // Replay an earlier batch with a lower watermark — must not move backwards.
-    ingestEvents(db, logFileId, [meleeHit(1, 100)], { byteOffset: 50, seq: 1 });
+    // Replay the earlier line with ITS OWN justified watermark (161 < 281):
+    // forward-only MAX must keep the higher watermark.
+    ingestEvents(db, logFileId, [meleeHit(1, 100)], { byteOffset: 161, seq: 1 });
 
     expect(getWatermark(db, logFileId)).toEqual(watermark);
   });
 
-  it("derives a monotonic watermark from the batch when none is supplied", () => {
+  it("derives the watermark one byte past the last complete line when none is supplied", () => {
     const { db, logFileId } = freshDb();
+    // Last line starts at 160, is 60 bytes long -> ends at 220, resume offset 221.
     const events = [meleeHit(1, 100), meleeHit(2, 160)];
 
     const result = ingestEvents(db, logFileId, events);
 
-    expect(result.watermark.seq).toBe(2);
-    expect(result.watermark.byteOffset).toBeGreaterThanOrEqual(160);
+    expect(result.watermark).toEqual({ byteOffset: 221, seq: 2 });
+  });
+
+  it("throws on a seq collision at a different byte_offset and drops nothing (append-only)", () => {
+    // BLOCKER 1: a duplicate seq at a NEW byte offset must not be silently
+    // ignored; it violates UNIQUE(log_file_id, seq) and rolls the batch back.
+    const { db, logFileId } = freshDb();
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, logFileId, events, watermark);
+    const before = getWatermark(db, logFileId);
+    const countBefore = eventCount(db, logFileId);
+
+    // seq 3 already exists (byte 220); reuse seq 3 at a different byte offset.
+    const collision = meleeHit(3, 500, {
+      raw: "You pierce a dune spiderling for 5 points of damage. [dup seq3]",
+    });
+    expect(() => ingestEvents(db, logFileId, [collision])).toThrow();
+
+    expect(eventCount(db, logFileId)).toBe(countBefore);
+    expect(getWatermark(db, logFileId)).toEqual(before);
+  });
+
+  it("rejects a non-empty watermark for an empty batch and does not move the watermark", () => {
+    // BLOCKER 2: nothing read cannot justify advancing the resume point.
+    const { db, logFileId } = freshDb();
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, logFileId, events, watermark);
+    const before = getWatermark(db, logFileId);
+
+    expect(() => ingestEvents(db, logFileId, [], { byteOffset: 99999, seq: 99 })).toThrow(
+      /empty batch/i,
+    );
+    expect(getWatermark(db, logFileId)).toEqual(before);
+  });
+
+  it("no-ops on an empty batch with no watermark", () => {
+    const { db, logFileId } = freshDb();
+    const result = ingestEvents(db, logFileId, []);
+    expect(result.inserted).toBe(0);
+    expect(result.watermark).toEqual({ byteOffset: 0, seq: 0 });
+  });
+
+  it("rejects an inflated watermark on a duplicate-only re-ingest (cannot skip unread bytes)", () => {
+    // BLOCKER 2: a duplicate-only batch carrying a higher-than-justified
+    // watermark must not advance past what the batch's rows justify.
+    const { db, logFileId } = freshDb();
+    const { events, watermark } = sampleBatch();
+    ingestEvents(db, logFileId, events, watermark);
+    const before = getWatermark(db, logFileId);
+
+    // Same events (all duplicates) but claiming a far-ahead byte offset.
+    expect(() => ingestEvents(db, logFileId, events, { byteOffset: 99999, seq: 3 })).toThrow(
+      /not justified/i,
+    );
+    expect(getWatermark(db, logFileId)).toEqual(before);
   });
 
   it("is atomic: a failing insert rolls back the whole batch and leaves the watermark untouched", () => {
@@ -87,7 +143,7 @@ describe("ingestEvents", () => {
     const countBefore = eventCount(db, logFileId);
 
     // logFileId 999 has no log_files row -> FK violation inside the tx.
-    expect(() => ingestEvents(db, 999, [meleeHit(9, 999)], { byteOffset: 9999, seq: 9 })).toThrow();
+    expect(() => ingestEvents(db, 999, [meleeHit(9, 999)])).toThrow();
 
     // The valid file's state is untouched; no partial writes leaked.
     expect(getWatermark(db, logFileId)).toEqual(before);

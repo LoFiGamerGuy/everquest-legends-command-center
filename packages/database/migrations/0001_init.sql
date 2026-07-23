@@ -179,6 +179,7 @@ CREATE TABLE xp_events (
   confidence              REAL
 );
 CREATE INDEX idx_xp_events_session ON xp_events(session_id);
+CREATE INDEX idx_xp_events_encounter ON xp_events(attributed_encounter_id);
 
 CREATE TABLE aa_events (
   id           INTEGER PRIMARY KEY,
@@ -259,6 +260,10 @@ CREATE TABLE encounter_actor_stats (
   active_invocation TEXT,
   PRIMARY KEY (encounter_id, entity_id)
 );
+-- The composite PK covers (encounter_id, ...) prefix lookups; these index the
+-- entity/owner join columns for per-actor and pet-rollup queries (DATA_MODEL §7).
+CREATE INDEX idx_eas_entity ON encounter_actor_stats(entity_id);
+CREATE INDEX idx_eas_attrib_owner ON encounter_actor_stats(attrib_owner_id);
 
 CREATE TABLE encounter_buckets (
   encounter_id INTEGER NOT NULL REFERENCES encounters(id),
@@ -268,3 +273,4 @@ CREATE TABLE encounter_buckets (
   healing      INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (encounter_id, entity_id, bucket_ts)
 );
+CREATE INDEX idx_ebuckets_entity ON encounter_buckets(entity_id);

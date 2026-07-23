@@ -37,12 +37,20 @@ resume watermark **in the same transaction** (ARCHITECTURE.md §5). Crash-safety
 reduces to SQLite durability: either the events and the advanced watermark both
 land, or neither does.
 
-- **Idempotent.** `INSERT OR IGNORE` on `UNIQUE(log_file_id, byte_offset)` drops
-  duplicates; the watermark advances forward-only (`MAX(...)`). Replaying a batch
-  inserts zero rows and never regresses the watermark.
+- **Idempotent, lossless.** Insertion uses a targeted
+  `ON CONFLICT(log_file_id, byte_offset) DO NOTHING`: a real byte-offset replay
+  is a no-op, but any other constraint violation — notably a duplicate `seq` at a
+  different byte offset — **throws and rolls the batch back**, so no line is ever
+  silently dropped. The watermark advances forward-only (`MAX(...)`), so a replay
+  never regresses it.
+- **Watermark only advances when justified by the batch.** An empty batch never
+  moves it (a non-empty explicit watermark for an empty batch is rejected); an
+  explicit watermark must match the batch extent (its `seq` equals the batch max;
+  its `byteOffset` is one terminator past the last line), so a duplicate-only
+  re-ingest carrying an inflated watermark cannot skip unread bytes.
 - **`watermark`** — production passes the tailer's batch watermark (`byteOffset`,
-  next byte to read) and the parser's last `seq`. Omit it and a monotonic
-  watermark is derived from the batch (best effort; a short re-read is harmless).
+  next byte to read) and the parser's last `seq`. Omit it and it is derived from
+  the batch extent (max seq; one byte past the last complete line).
 - **`getWatermark(db, logFileId)`** returns `{ byteOffset, seq }` for tailer
   resume — restored transactionally per the DATA_MODEL Ordering amendment.
 

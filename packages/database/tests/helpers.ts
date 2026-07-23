@@ -41,8 +41,12 @@ export function meleeHit(
   };
 }
 
-/** A three-event batch with monotonic seq/byte offsets, plus its resume watermark. */
+/**
+ * A three-event batch with monotonic seq/byte offsets, plus its resume
+ * watermark. Each raw line is 60 bytes; the last line starts at byte 220, so it
+ * ends at 280 and the resume offset (one `\n` past it) is 281.
+ */
 export function sampleBatch(): { events: MeleeHitEvent[]; watermark: { byteOffset: number; seq: number } } {
   const events = [meleeHit(1, 100), meleeHit(2, 160), meleeHit(3, 220)];
-  return { events, watermark: { byteOffset: 280, seq: 3 } };
+  return { events, watermark: { byteOffset: 281, seq: 3 } };
 }

@@ -72,8 +72,9 @@ export function migrate(db: SqlDatabase, options: MigrateOptions = {}): MigrateR
   if (pending.length === 0) return { applied: [], currentVersion: current };
 
   // Pre-migration snapshot (optional; skipped when unset so tests don't thrash).
+  // Parameterized target — never string-interpolated into SQL.
   if (options.backupPath !== undefined) {
-    db.exec(`VACUUM INTO '${options.backupPath.replace(/'/g, "''")}'`);
+    db.prepare("VACUUM INTO ?").run(options.backupPath);
   }
 
   // Bookkeeping table is infra, created once outside the migration bodies.

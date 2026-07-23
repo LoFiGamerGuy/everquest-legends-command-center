@@ -68,28 +68,52 @@ export function upsertLogFile(db: SqlDatabase, input: LogFileInput): number {
 /** Denormalized primary magnitude for indexing (must equal the payload value). */
 function primaryValue(event: LogEvent): number | null {
   const record = event as unknown as Record<string, unknown>;
-  for (const key of ["amount", "percentMilli", "delta", "costPoints", "value"]) {
+  // `totalCopper` covers loot_auto_sell / coin_gain (money is a primary indexed
+  // magnitude, DATA_MODEL.md §7).
+  for (const key of ["amount", "percentMilli", "delta", "costPoints", "totalCopper", "value"]) {
     const candidate = record[key];
     if (typeof candidate === "number") return candidate;
   }
   return null;
 }
 
-/** Best-effort watermark from a batch when the caller does not supply one. */
-function deriveWatermark(events: readonly LogEvent[]): Watermark | undefined {
-  if (events.length === 0) return undefined;
-  let byteOffset = 0;
-  let seq = 0;
-  for (const event of events) {
-    byteOffset = Math.max(byteOffset, event.byteOffset + Buffer.byteLength(event.raw, "utf8"));
-    seq = Math.max(seq, event.seq);
-  }
-  return { byteOffset, seq };
+/**
+ * Extent of a batch: the byte offset just past the last complete line, and the
+ * batch's maximum seq. The "last line" is the event with the greatest byte
+ * offset (byte offsets and seq are co-monotonic per file). Byte length is
+ * counted in the source's single-byte encoding (Windows-1252 ≈ latin1;
+ * ARCHITECTURE.md §5), which equals the JS string length; `+1` accounts for the
+ * `\n` terminator the tailer strips from `raw` (a `\r\n` log resumes one byte
+ * early — a harmless idempotent re-read).
+ */
+interface BatchExtent {
+  /** Byte offset just past the last complete line (i.e. the derived watermark offset). */
+  pastLastLine: number;
+  /** First byte of the last complete line + its content length (before the terminator). */
+  lastLineContentEnd: number;
+  /** Greatest seq in the batch. */
+  maxSeq: number;
 }
 
-const INSERT_EVENT_SQL = `INSERT OR IGNORE INTO events
+function batchExtent(events: readonly LogEvent[]): BatchExtent {
+  let lastLineOffset = -1;
+  let lastLineRaw = "";
+  let maxSeq = 0;
+  for (const event of events) {
+    if (event.byteOffset > lastLineOffset) {
+      lastLineOffset = event.byteOffset;
+      lastLineRaw = event.raw;
+    }
+    if (event.seq > maxSeq) maxSeq = event.seq;
+  }
+  const contentEnd = lastLineOffset + Buffer.byteLength(lastLineRaw, "latin1");
+  return { pastLastLine: contentEnd + 1, lastLineContentEnd: contentEnd, maxSeq };
+}
+
+const INSERT_EVENT_SQL = `INSERT INTO events
   (log_file_id, seq, byte_offset, raw, ts, type, value, payload, dialect_id, rule_id)
-  VALUES (@logFileId, @seq, @byteOffset, @raw, @ts, @type, @value, @payload, @dialectId, @ruleId)`;
+  VALUES (@logFileId, @seq, @byteOffset, @raw, @ts, @type, @value, @payload, @dialectId, @ruleId)
+  ON CONFLICT(log_file_id, byte_offset) DO NOTHING`;
 
 const ADVANCE_WATERMARK_SQL = `UPDATE log_files
   SET byte_offset = MAX(byte_offset, @byteOffset),
@@ -100,11 +124,25 @@ const ADVANCE_WATERMARK_SQL = `UPDATE log_files
 /**
  * Append `events` for `logFileId` and advance its resume watermark, atomically.
  *
+ * Insertion uses a targeted `ON CONFLICT(log_file_id, byte_offset) DO NOTHING`:
+ * a genuine byte-offset replay is idempotent, but ANY other constraint
+ * violation — notably a duplicate `seq` at a different byte offset — THROWS and
+ * rolls the whole batch back, so a line can never be silently dropped
+ * (append-only / lossless, ARCHITECTURE.md §4).
+ *
+ * The watermark only advances when justified by THIS batch:
+ * - an empty batch never advances it (a non-empty explicit watermark for an
+ *   empty batch is rejected — nothing read cannot move the resume point);
+ * - an explicit watermark must be justified by the batch's own extent (its
+ *   `seq` equals the batch max; its `byteOffset` sits at the end of the last
+ *   line ±1 terminator byte), so a duplicate-only re-ingest carrying an inflated
+ *   watermark cannot skip unread bytes;
+ * - the update is forward-only (`MAX(...)`), so replaying an older batch never
+ *   regresses the watermark.
+ *
  * @param watermark Explicit resume position (production: the tailer's batch
  * watermark for `byteOffset` and the parser's last `seq`). When omitted it is
- * derived from the batch (max seq; max byte offset past each line) — a
- * best-effort fallback, since a re-read from a slightly short offset is
- * harmless (idempotent by the UNIQUE key).
+ * derived from the batch extent (max seq; one byte past the last complete line).
  */
 export function ingestEvents(
   db: SqlDatabase,
@@ -112,9 +150,22 @@ export function ingestEvents(
   events: readonly LogEvent[],
   watermark?: Watermark,
 ): IngestResult {
+  // An empty batch justifies no watermark movement.
+  if (events.length === 0) {
+    if (watermark !== undefined) {
+      throw new Error(
+        "@eqlcc/database: refusing to advance the watermark for an empty batch " +
+          "(no events read cannot justify moving the resume point).",
+      );
+    }
+    return { inserted: 0, watermark: getWatermark(db, logFileId) };
+  }
+
+  const extent = batchExtent(events);
+  const target = justifiedWatermark(extent, watermark);
+
   const insert = db.prepare(INSERT_EVENT_SQL);
   const advance = db.prepare(ADVANCE_WATERMARK_SQL);
-  const target = watermark ?? deriveWatermark(events);
 
   const run = db.transaction((): number => {
     let inserted = 0;
@@ -133,19 +184,49 @@ export function ingestEvents(
       });
       inserted += info.changes;
     }
-    if (target !== undefined) {
-      advance.run({
-        id: logFileId,
-        byteOffset: target.byteOffset,
-        seq: target.seq,
-        now: Date.now(),
-      });
-    }
+    advance.run({
+      id: logFileId,
+      byteOffset: target.byteOffset,
+      seq: target.seq,
+      now: Date.now(),
+    });
     return inserted;
   });
 
   const inserted = run();
   return { inserted, watermark: getWatermark(db, logFileId) };
+}
+
+/**
+ * Resolve the watermark to persist for a non-empty batch. Without an explicit
+ * watermark the batch extent is used. An explicit watermark is accepted only if
+ * justified by the batch: `seq` equals the batch max, and `byteOffset` lands at
+ * the end of the last line (allowing 0–2 terminator bytes). Anything else is an
+ * unjustified value that could skip unread bytes, so it throws.
+ */
+function justifiedWatermark(extent: BatchExtent, watermark?: Watermark): Watermark {
+  if (watermark === undefined) {
+    return { byteOffset: extent.pastLastLine, seq: extent.maxSeq };
+  }
+  if (watermark.seq !== extent.maxSeq) {
+    throw new Error(
+      `@eqlcc/database: watermark seq ${watermark.seq} is not justified by this batch ` +
+        `(batch max seq is ${extent.maxSeq}).`,
+    );
+  }
+  // Valid resume offsets sit one terminator past the last line: contentEnd+1
+  // (`\n`) or contentEnd+2 (`\r\n`). Anything outside would skip unread bytes.
+  if (
+    watermark.byteOffset < extent.pastLastLine ||
+    watermark.byteOffset > extent.pastLastLine + 1
+  ) {
+    throw new Error(
+      `@eqlcc/database: watermark byteOffset ${watermark.byteOffset} is not justified by this ` +
+        `batch (its last line ends at byte ${extent.lastLineContentEnd}, so the resume offset must be ` +
+        `${extent.pastLastLine}–${extent.pastLastLine + 1}); refusing to skip unread bytes.`,
+    );
+  }
+  return watermark;
 }
 
 /** Read the persisted resume watermark for a tracked file (tailer resume). */

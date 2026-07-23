@@ -31,7 +31,10 @@ export interface OpenOptions {
 export function openDatabase(filename = ":memory:", options: OpenOptions = {}): SqlDatabase {
   const db = options.readonly ? new Database(filename, { readonly: true }) : new Database(filename);
   db.pragma("foreign_keys = ON");
-  const useWal = options.wal ?? filename !== ":memory:";
+  // WAL is a write operation (it mutates the journal mode), so it is off by
+  // default for read-only opens and for :memory: (where it is a no-op anyway);
+  // set `wal: true` to force it.
+  const useWal = options.wal ?? (!options.readonly && filename !== ":memory:");
   if (useWal) db.pragma("journal_mode = WAL");
   return db;
 }
