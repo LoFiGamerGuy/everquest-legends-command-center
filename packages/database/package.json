@@ -1,0 +1,25 @@
+{
+  "name": "@eqlcc/database",
+  "version": "0.0.1",
+  "private": true,
+  "description": "SQLite persistence for EQL Command Center: forward-only numbered migrations, the append-only events schema, and the transactional (byte_offset, seq) watermark ingestion API. Node/tests/CLI via better-sqlite3; the Tauri tauri-plugin-sql mirror is M2.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src", "migrations"],
+  "dependencies": {
+    "@eqlcc/event-schema": "*",
+    "better-sqlite3": "^11.10.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11"
+  },
+  "engines": { "node": ">=22" }
+}
