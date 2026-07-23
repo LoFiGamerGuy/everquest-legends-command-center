@@ -51,14 +51,16 @@ kept (ids are re-derived deterministically and are referenced by
   end-of-pass — it stays `status='active'` and re-opens on the next batch. This
   is required for the headline incremental == rebuild guarantee (§9.2); the
   trailing encounter mirrors the trailing open session. Close is realized only
-  when a later event proves the timeout elapsed.
+  when a later event proves the timeout elapsed. A completed log can be closed
+  out with the optional, explicitly-not-core `finalizeEncounters(db, asOfTs?)`.
 - **Ally identification** is resolver-driven: the enemy is the NPC/article-led
   side (or an `unknown` the owner attacks — a named boss); everyone else on the
   line is an ally (group-wide, ADR-4), including not-yet-classified group members.
   Only the log owner's pets fold to an owner (the resolver links pets to "you");
-  other players' pets self-credit. Stance/invocation-at-start is derived from the
-  most recent change at/before `started_ts` (ts-bounded; a same-second change
-  relative to `seq` is not disambiguated — rare, flagged).
+  other players' pets self-credit. Stance/invocation-at-start is bound by the
+  opener event's id — i.e. `(log_file_id, seq)`, the canonical order, never `ts`
+  alone — so a same-second change with a later `seq` is not mistaken for the
+  opener's stance.
 - **currency_ledger** records `auto_sell` (from `loot_auto_sell`) and `loot_coin`
   (from the now-verified `coin_gain` event). `vendor`/`other` reasons stay
   deferred (their line formats are still unverified — never invent a coin delta).
@@ -73,10 +75,19 @@ kept (ids are re-derived deterministically and are referenced by
   forces its dependents to re-derive. A leaf bump resets only itself + trailing
   leaves.
 - **`merge_into` entity overrides** are not applied (M1); `kind` and `owner` are.
-- **Single-owner pass**: one resolver per pass is built from the first
-  `log_files` row (M1 is one active log file). Multi-file/multi-owner passes are
-  a v2 concern.
+- **Single-owner pass, guarded**: one resolver / entity namespace per pass is
+  built from the first `log_files` row (M1 is one owner per DB). Events spanning
+  more than one `log_file_id` are rejected with a clear error rather than
+  silently inheriting the first file's owner; per-log-file context is a v2
+  concern (run one projection DB per character, as the orchestrator does).
+- **Entities/links commit with the watermark**: the entities projector's
+  kind/link sync runs inside the same transaction as each batch's watermark
+  advance, so a committed watermark always implies its entity/link rows.
+  `entity_links` use a deterministic upsert (no delete+reinsert), so the link id
+  never drifts across passes.
 - `getExperimentBreakdown` bootstraps the metric mean over encounters (the
-  correct resampling unit) with a fixed seeded RNG (reproducible), reports n +
-  CI, and refuses a winner below `minN` or on CI overlap. `weapon` /
+  correct resampling unit) with a per-group seeded RNG (reproducible and
+  independent of row/insertion order — the query is `ORDER BY`ed and each group's
+  samples are sorted), reports n + CI, and refuses a winner when the TOP-observed
+  group is below `minN` or the top two CIs overlap. `weapon` /
   `difficulty` dimensions have no verified log source in M1 (empty / `unknown`).
