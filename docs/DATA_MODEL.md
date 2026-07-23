@@ -322,3 +322,7 @@ logs).
   `confidence` (0–1) is the deliberate exception.
 - Deletions: only `raw_unknown` pruning (§2) and `encounter_buckets` pruning (§6). Nothing else is
   deleted; user "deletions" are `entity_overrides` / disabled flags.
+
+## Ordering amendment (2026-07-23, cross-model review PR #15)
+
+Events carry `seq` (per-file monotonic emission ordinal) among the base fields; projections order by `(log_file_id, seq)` — equivalently `(log_file_id, byte_offset)` — never by `ts` alone. On resume, the tailer/parser restores `seq` from the same transactional watermark row as `byte_offset` (`startSeq` parser option).

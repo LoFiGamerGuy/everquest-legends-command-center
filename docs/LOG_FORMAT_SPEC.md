@@ -419,3 +419,7 @@ All payload interfaces carry: `raw`, `byteOffset`, `logFileId`, `ts`, `dialectId
   mob/spell/zone/item names, numbers, and punctuation byte-exact.
 - One recognizer change = at least one fixture line + golden expected-event JSON.
 - Never hand-write fixture lines. If you need a format, go capture it.
+
+## Ordering contract (amended 2026-07-23, cross-model review PR #15)
+
+Sub-second precision: none observed in EQL logs. The parser assigns each event a per-file monotonic `seq` (1-based, line order, including `raw_unknown`); `(log_file_id, seq)` is the canonical total order for the event stream — `ts` alone must never be used to order same-second events.
