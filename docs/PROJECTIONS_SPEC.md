@@ -71,16 +71,16 @@ Mostly 1:1 from their verified event types, each row referencing its source `eve
 - **`xp_events`:** from `xp_gain` (`kind='normal'`), `level_up` (`kind='level_up'`), AA xp (`kind='aa'` — UNVERIFIED, reserve). `percent_milli` lossless. `attributed_encounter_id` = the nearest preceding `kill`'s encounter within **`XP_KILL_WINDOW_MS` = 5 s** (`evidence_type='kill_proximity'`, `confidence` by proximity); else NULL. Enables XP/kill and XP/hour.
 - **`aa_events`:** from `ability_purchase` (name + `cost_points`, both verified in-log).
 - **`loot_events`:** from loot events — `mode='kept'` (corpse loot) or `'auto_sold'` (`sale_total_copper` set). `quantity`, `corpse_name` when present.
-- **`currency_ledger`:** signed `delta_copper` with `reason` — only `auto_sell` is VERIFIED; `loot_coin`/`vendor`/`other` as their formats are confirmed (RESEARCH_BACKLOG). Never invent coin deltas.
+- **`currency_ledger`:** signed `delta_copper` with `reason` — `auto_sell` (from `loot_auto_sell`) and `loot_coin` (from the corpus-verified `coin_gain` event) are recorded; `vendor`/`other` remain deferred until their formats are confirmed (RESEARCH_BACKLOG). Never invent coin deltas.
 - **`faction_events`:** `faction_name` + `delta` (positive verified; negative assumed symmetric).
-- **`skill_events`:** **UNVERIFIED** format — projector reserved, writes nothing until a fixture lands.
+- **`skill_events`:** from `skill_up` (corpus-verified in `@eqlcc/event-schema`: "You have become better at 1H Slashing! (12)") — `skill_name` + `new_value`.
 - **Session analytics** (computed, not a table in M1 — exposed via query API §8): `active_ms` = Σ encounter `duration_ms` in the session; `afk_ms` = session span − active_ms; XP/hour = Σ `percent_milli` per level ÷ session hours; coin/hour from `currency_ledger`.
 
 ## 8. Read / query API (what analytics & the M2 UI consume)
 
 The projections package exports a thin, typed read API (parameterized SQL, no ORM) — the seam that keeps the UI thin (ARCHITECTURE):
 
-- `rebuildProjections(db, {from?})` / `updateProjections(db)` — full rebuild / incremental to head.
+- `rebuildProjections(db)` / `updateProjections(db)` — full rebuild (always a full wipe + replay from event 1; no partial-`from` option, which could silently drop earlier events) / incremental to head.
 - `getSessions(db, logFileId?)`, `getSessionSummary(db, sessionId)` → span, active/afk ms, xp/hr, coin/hr, encounter count, zones.
 - `listEncounters(db, {sessionId?, zoneId?, scale?, since?})` → encounter headers (name, target, span, dps of top actor).
 - `getEncounter(db, encounterId)` → participants + per-actor stats (with owner-folded and per-pet views) + bucket series for charts.

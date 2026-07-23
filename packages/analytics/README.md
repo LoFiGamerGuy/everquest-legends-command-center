@@ -59,13 +59,19 @@ kept (ids are re-derived deterministically and are referenced by
   other players' pets self-credit. Stance/invocation-at-start is derived from the
   most recent change at/before `started_ts` (ts-bounded; a same-second change
   relative to `seq` is not disambiguated — rare, flagged).
-- **currency_ledger records `auto_sell` only** (spec §7 "only auto_sell is
-  VERIFIED"). `coin_gain` is now a verified event in `@eqlcc/event-schema`, so
-  mapping it (corpse→loot_coin, merchant→vendor, item→other) is a cheap fast
-  follow — deliberately deferred here to honour the spec's VERIFIED boundary.
-- **skill_events writes nothing** (spec §7 reserved). `skill_up` is now verified
-  in the corpus, so this projector can be activated once a fixture/decision
-  lands — deferred per the ticket.
+- **currency_ledger** records `auto_sell` (from `loot_auto_sell`) and `loot_coin`
+  (from the now-verified `coin_gain` event). `vendor`/`other` reasons stay
+  deferred (their line formats are still unverified — never invent a coin delta).
+- **skill_events** projects the now-verified `skill_up` event
+  (`skill_name` + `new_value`).
+- **rebuild is always a full wipe + replay from event 1** — `rebuildProjections`
+  has no `from` option (a partial-`from` wipe would delete events ≤ from and never
+  reprocess them). Partial rebuild is not an M1 need.
+- **Version-bump cascade**: a stored/code `version` mismatch resets the
+  mismatched projector AND every projector downstream of it in the dependency
+  order (later projectors read earlier ones' outputs), so a foundational bump
+  forces its dependents to re-derive. A leaf bump resets only itself + trailing
+  leaves.
 - **`merge_into` entity overrides** are not applied (M1); `kind` and `owner` are.
 - **Single-owner pass**: one resolver per pass is built from the first
   `log_files` row (M1 is one active log file). Multi-file/multi-owner passes are
