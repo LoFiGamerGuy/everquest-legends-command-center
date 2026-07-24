@@ -6,9 +6,27 @@
  * candidates:
  *   - digits            -> `#`
  *   - quoted strings    -> `'…'`
- *   - name-like tokens  -> token classes: capitalized words after the first
- *     token become `Name` (runs collapse), keeping sentence structure intact.
+ *   - name-like tokens  -> token classes: capitalized words become `Name`
+ *     (runs collapse), keeping sentence structure intact.
+ *
+ * Anonymization contract: the shape is a SHAREABLE, name-free string (it is the
+ * drift/detect output surface). Capitalized (name-like) token runs are collapsed
+ * to `Name` ANYWHERE in the line, INCLUDING the leading token — a leading player
+ * name must never leak. A small whitelist of sentence openers that are never
+ * player names (articles, `You`/`Your`) is kept verbatim for readability;
+ * matching is exact-token, so `The` is kept but `Theresa` is anonymized.
  */
+
+/** Capitalized sentence openers that are never player names — kept verbatim. */
+const SHAPE_KEEP_OPENERS: ReadonlySet<string> = new Set([
+  "A",
+  "An",
+  "The",
+  "You",
+  "Your",
+  "YOU",
+  "YOUR",
+]);
 
 export function normalizeShape(message: string): string {
   let shape = message;
@@ -16,12 +34,18 @@ export function normalizeShape(message: string): string {
   shape = shape.replace(/'.*'/s, "'…'");
   // Digits.
   shape = shape.replace(/\d+/g, "#");
-  // Name-like token runs (capitalized, possibly with ` or ' or -) anywhere
-  // except the leading token; leading position only when followed by a
-  // lowercase verb-ish token is left to keep shapes readable.
+  // Collapse runs of capitalized (name-like) tokens to `Name`, anywhere in the
+  // line including the leading token. Whitelisted openers are peeled off and
+  // kept; any remaining capitalized tokens in the run collapse to one `Name`.
   shape = shape.replace(
-    /(?<=\s)((?:[A-Z][A-Za-z`'-]*)(?:\s+[A-Z][A-Za-z`'-]*)*)/g,
-    "Name",
+    /[A-Z][A-Za-z`'-]*(?:\s+[A-Z][A-Za-z`'-]*)*/g,
+    (run) => {
+      const tokens = run.split(/\s+/);
+      let i = 0;
+      while (i < tokens.length && SHAPE_KEEP_OPENERS.has(tokens[i] as string)) i += 1;
+      if (i === tokens.length) return run; // entirely whitelisted openers
+      return [...tokens.slice(0, i), "Name"].join(" ");
+    },
   );
   return shape;
 }

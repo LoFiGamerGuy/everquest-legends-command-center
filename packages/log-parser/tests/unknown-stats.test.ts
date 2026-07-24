@@ -9,15 +9,35 @@ describe("normalizeShape (issue #10 triage shapes)", () => {
     );
   });
 
-  it("normalizes quoted payloads to '…' (leading token kept for readability)", () => {
+  it("normalizes quoted payloads to '…' and anonymizes the leading name", () => {
     expect(normalizeShape("Somebody tells General:2, 'buy my stuff for 5pp'")).toBe(
-      "Somebody tells Name:#, '…'",
+      "Name tells Name:#, '…'",
     );
   });
 
-  it("normalizes name-like capitalized token runs", () => {
+  it("normalizes name-like capitalized token runs (article opener kept)", () => {
     expect(normalizeShape("A fire beetle has been slain by Guard Stoutman!")).toBe(
       "A fire beetle has been slain by Name!",
+    );
+  });
+
+  it("anonymizes a LEADING player name (no leak) in a combat line", () => {
+    expect(normalizeShape("Aeronwyn hits a coyote for 5 points of damage.")).toBe(
+      "Name hits a coyote for # points of damage.",
+    );
+  });
+
+  it("anonymizes a leading name in a guild line", () => {
+    expect(normalizeShape("Soandso has joined the guild.")).toBe("Name has joined the guild.");
+  });
+
+  it("keeps whitelisted openers You/Your verbatim", () => {
+    // "You" kept; later capitalized zone words still anonymize (no name leaks).
+    expect(normalizeShape("You have entered the Plane of Knowledge.")).toBe(
+      "You have entered the Name of Name.",
+    );
+    expect(normalizeShape("Your faction standing has improved.")).toBe(
+      "Your faction standing has improved.",
     );
   });
 });
@@ -32,8 +52,10 @@ describe("UnknownStats", () => {
     expect(stats.distinctShapes).toBe(2);
     const top = stats.top(20);
     expect(top[0]).toEqual({
-      shape: "Weird line # about Name.",
+      shape: "Name line # about Name.",
       count: 2,
+      // firstExample stays raw here — this is the LOCAL diagnostic store, not the
+      // shareable drift surface (which carries only {shape, count}).
       firstExample: "Weird line 1 about Bob.",
       firstLineNo: 10,
     });

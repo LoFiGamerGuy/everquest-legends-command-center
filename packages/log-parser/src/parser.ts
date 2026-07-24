@@ -15,7 +15,7 @@
  * transaction, DATA_MODEL.md §2).
  */
 
-import type { LogEvent } from "@eqlcc/event-schema";
+import type { DialectId, LogEvent } from "@eqlcc/event-schema";
 import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";
 import type { RawLine } from "./line-reader.js";
 import { splitLines } from "./line-reader.js";
@@ -27,11 +27,20 @@ export interface ParserOptions {
   registry?: RecognizerRegistry;
   /** Resume value: `seq` of the last previously-emitted event (default 0). */
   startSeq?: number;
+  /**
+   * Dialect stamped on `raw_unknown`/malformed-timestamp fallthrough events
+   * (recognized events already carry their rule's dialectId). Defaults to
+   * `DIALECT_EQL_BETA_2026_07` so existing single-dialect output is unchanged;
+   * set it when parsing under a non-beta dialect so its unknowns roll up to the
+   * right dialect (LAUNCH_DIALECT_READINESS.md — per-dialect diagnostics).
+   */
+  dialectId?: DialectId;
 }
 
 export class LogParser {
   readonly registry: RecognizerRegistry;
   private readonly logFileId: number;
+  private readonly dialectId: DialectId;
   private lastTs = 0;
   private seq: number;
 
@@ -39,6 +48,7 @@ export class LogParser {
     this.logFileId = options.logFileId;
     this.registry = options.registry ?? new RecognizerRegistry();
     this.seq = options.startSeq ?? 0;
+    this.dialectId = options.dialectId ?? DIALECT_EQL_BETA_2026_07;
   }
 
   parseLine(line: RawLine): LogEvent {
@@ -54,7 +64,7 @@ export class LogParser {
         byteOffset,
         lineNo,
         logFileId: this.logFileId,
-        dialectId: DIALECT_EQL_BETA_2026_07,
+        dialectId: this.dialectId,
         ruleId: null,
       };
     }
@@ -70,7 +80,7 @@ export class LogParser {
         byteOffset,
         lineNo,
         logFileId: this.logFileId,
-        dialectId: DIALECT_EQL_BETA_2026_07,
+        dialectId: this.dialectId,
         ruleId: null,
       };
     }
