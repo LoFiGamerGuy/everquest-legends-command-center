@@ -1,0 +1,25 @@
+{
+  "name": "@eqlcc/desktop-ipc",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Transport-agnostic typed IPC seam (E2.2a, docs/DESKTOP_IPC_SPEC.md) between the desktop UI and the Node session-service sidecar: a small JSON request/response protocol plus a SessionIpcHost (sidecar side) and SessionIpcClient (UI side), decoupled from the concrete wire behind an injectable IpcTransport. Pure TS; carries only session-service view-model types across the wire.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "dependencies": {
+    "@eqlcc/session-service": "*"
+  },
+  "devDependencies": {
+    "@eqlcc/database": "*",
+    "@eqlcc/event-schema": "*"
+  },
+  "engines": { "node": ">=22" }
+}
