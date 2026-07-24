@@ -1,0 +1,23 @@
+{
+  "name": "@eqlcc/analytics",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Projection writers and the analytics read/query API for EQL Command Center: the deterministic, rebuildable pipeline that turns the append-only events table into sessions/zones/encounters/rollups and the thin typed read API the UI consumes (issue #20, docs/PROJECTIONS_SPEC.md). Pure TS; depends on @eqlcc/database, @eqlcc/log-parser, @eqlcc/event-schema.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "dependencies": {
+    "@eqlcc/database": "*",
+    "@eqlcc/event-schema": "*",
+    "@eqlcc/log-parser": "*"
+  },
+  "engines": { "node": ">=22" }
+}

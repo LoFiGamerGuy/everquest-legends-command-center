@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src", "tests"],
+  "references": [
+    { "path": "../event-schema" },
+    { "path": "../log-parser" },
+    { "path": "../database" }
+  ]
+}
