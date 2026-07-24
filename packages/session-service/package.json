@@ -1,0 +1,24 @@
+{
+  "name": "@eqlcc/session-service",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Thin typed session-service seam (issue #23, docs/SESSION_SERVICE_SPEC.md): composes the durable ingest pipeline, the projection driver, and the analytics read API into UI-ready live view-models. The single control point the desktop tracker consumes over IPC — the UI imports only this package's view types, never parser/DB/projector internals. Pure TS; caller-driven pull seam (no hidden clocks/timers).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "dependencies": {
+    "@eqlcc/analytics": "*",
+    "@eqlcc/database": "*",
+    "@eqlcc/event-schema": "*",
+    "@eqlcc/orchestrator": "*"
+  },
+  "engines": { "node": ">=22" }
+}
