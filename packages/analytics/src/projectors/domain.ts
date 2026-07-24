@@ -32,19 +32,31 @@ interface KillRow {
 }
 
 export function createDomainProjector(): Projector {
+  // The character's current level, advanced in event order over the pass. This
+  // replaces a per-`xp_gain` `SELECT … type='level_up' … ORDER BY id DESC LIMIT 1`
+  // scan: `level_up` is rare and unindexed for that shape, so each lookup scanned
+  // the whole (single-file) events table — O(n) per xp gain, O(n²) over a rebuild
+  // (a measured superlinear hotspot, E1.3 / issue #21). Reconstructed at pass
+  // start from the persisted events, so incremental == rebuild stays exact.
+  let liveLevel: number | null = null;
+
   return {
     name: "domain",
     version: 1,
     tablesOwned: [...DOMAIN_TABLES],
 
-    load(): void {
-      /* no in-memory state; xp attribution reads persisted rows */
+    load(ctx: PassContext, watermark: number): void {
+      liveLevel = latestLevel(ctx, ctx.logFileId, watermark);
     },
 
     apply(ctx: PassContext, pe: PassEvent): void {
       const { db } = ctx;
       const e = pe.event;
       const sessionId = pe.sessionId;
+
+      // Advance the live level for EVERY level_up (independent of session, matching
+      // the old lookup's semantics), before the session-gated writes below.
+      if (e.type === "level_up") liveLevel = e.level;
 
       switch (e.type) {
         case "xp_gain": {
@@ -61,7 +73,7 @@ export function createDomainProjector(): Projector {
             ts: e.ts,
             session: sessionId,
             pm: e.percentMilli,
-            level: currentLevel(ctx, pe),
+            level: liveLevel,
             enc: attributed?.encounterId ?? null,
             evidence: attributed === null ? null : "kill_proximity",
             confidence: attributed?.confidence ?? null,
@@ -164,15 +176,21 @@ function nearestKill(
   return { encounterId: row.encounter_id, confidence };
 }
 
-/** Character level from the most recent preceding level_up (spec §7). */
-function currentLevel(ctx: PassContext, pe: PassEvent): number | null {
+/**
+ * Character level from the most recent `level_up` at or before `watermark`, used
+ * ONCE per pass in {@link Projector.load} to seed the live level. During the pass
+ * itself the level is advanced in memory from each `level_up` event (see above),
+ * so this bounded scan never runs in the per-event hot path.
+ */
+function latestLevel(ctx: PassContext, logFileId: number, watermark: number): number | null {
+  if (watermark <= 0) return null;
   const row = ctx.db
     .prepare(
       `SELECT payload FROM events
-       WHERE type = 'level_up' AND log_file_id = ? AND id < ?
+       WHERE type = 'level_up' AND log_file_id = ? AND id <= ?
        ORDER BY id DESC LIMIT 1`,
     )
-    .get(pe.event.logFileId, pe.id) as { payload: string } | undefined;
+    .get(logFileId, watermark) as { payload: string } | undefined;
   if (row === undefined) return null;
   const parsed = JSON.parse(row.payload) as { level?: number };
   return typeof parsed.level === "number" ? parsed.level : null;
