@@ -8,8 +8,21 @@
  * `GROUP BY COALESCE(attrib_owner_id, entity_id)`. `duration_ms` tracks the
  * encounter span; `active_stance`/`active_invocation` are the owner's state at
  * the encounter's start (derived from the last stance/invocation change at or
- * before `started_ts`). No in-memory row state: the table itself is the
- * accumulator (idempotent additive upserts), so incremental == rebuild.
+ * before the encounter's opener event). No in-memory row state: the table itself
+ * is the accumulator (idempotent additive upserts), so incremental == rebuild.
+ *
+ * Perf (E1.3 / issue #21): the opener's stance/invocation used to be a
+ * `SELECT … WHERE type=? ORDER BY id DESC LIMIT 1` per new encounter. Those rare
+ * event types have no usable index for that shape, so each call scanned the whole
+ * (single-file) events table — O(n) per encounter, O(n²) over a rebuild (the
+ * measured superlinear hotspot). We now track the owner's current stance/
+ * invocation as in-memory state advanced over the pass (like the driver's other
+ * projector state): a new encounter's opener is, by construction, the FIRST event
+ * the projector applies for that encounter, so the live value at that moment IS
+ * the opener's state. For encounters left `active` across a pass boundary the
+ * opener is historical, so {@link Projector.load} rebuilds their start-state cache
+ * from the persisted rows — keeping incremental == rebuild byte-identical while a
+ * from-scratch rebuild does zero such scans.
  */
 
 import { analyzeContribution } from "../combat.js";
@@ -44,25 +57,24 @@ const UPSERT = `INSERT INTO encounter_actor_stats
 
 export function createActorStatsProjector(): Projector {
   const startCache = new Map<number, StartState>();
+  // The owner's current stance/invocation, advanced in event order over the pass
+  // (see the perf note above). Reconstructed at pass start from persisted events.
+  let liveStance: string | null = null;
+  let liveInvocation: string | null = null;
 
-  function startStateFor(ctx: PassContext, encounterId: number, logFileId: number): StartState {
+  function startStateFor(ctx: PassContext, encounterId: number): StartState {
     const cached = startCache.get(encounterId);
     if (cached !== undefined) return cached;
+    // Cache miss ⇒ this is the encounter's opener (its first applied event this
+    // pass); the live stance/invocation is exactly the opener's state. Encounters
+    // that opened in an earlier pass are pre-seeded in `load`, so they hit above.
     const enc = ctx.db
       .prepare("SELECT started_ts, primary_target_entity_id FROM encounters WHERE id = ?")
       .get(encounterId) as { started_ts: number; primary_target_entity_id: number | null } | undefined;
-    // The encounter's opener is the lowest-id event attached to it. Bound the
-    // stance/invocation lookup by that event id — i.e. by (log_file_id, seq)
-    // order, NOT ts alone (ordering amendment) — so a same-second stance change
-    // with a LATER seq than the opener is not mistaken for the opener's stance.
-    const opener = ctx.db
-      .prepare("SELECT MIN(id) AS id FROM events WHERE encounter_id = ?")
-      .get(encounterId) as { id: number | null };
-    const openerId = opener.id ?? 0;
     const state: StartState = {
       startedTs: enc?.started_ts ?? 0,
-      stance: latestStringField(ctx, "stance_change", "stance", logFileId, openerId),
-      invocation: latestStringField(ctx, "invocation_change", "invocation", logFileId, openerId),
+      stance: liveStance,
+      invocation: liveInvocation,
       enemyId: enc?.primary_target_entity_id ?? null,
     };
     startCache.set(encounterId, state);
@@ -74,15 +86,56 @@ export function createActorStatsProjector(): Projector {
     version: 1,
     tablesOwned: ["encounter_actor_stats"],
 
-    load(): void {
+    load(ctx: PassContext, watermark: number): void {
       startCache.clear();
+      // Reconstruct the live stance/invocation as of the watermark (the state a
+      // from-scratch replay would hold at this point) — one bounded lookup each,
+      // per pass, replacing the old per-encounter scans.
+      liveStance = latestStringField(ctx, "stance_change", "stance", ctx.logFileId, watermark);
+      liveInvocation = latestStringField(ctx, "invocation_change", "invocation", ctx.logFileId, watermark);
+      // Encounters still `active` across this pass boundary have a HISTORICAL
+      // opener, so their start-state can't come from the live value. Rebuild their
+      // cache from the opener event (bounded: only concurrently-open fights are
+      // active; a from-scratch rebuild resets encounters first, so this is empty).
+      const active = ctx.db
+        .prepare(
+          `SELECT e.id AS id, e.started_ts AS started_ts,
+                  e.primary_target_entity_id AS enemy, MIN(ev.id) AS opener
+           FROM encounters e JOIN events ev ON ev.encounter_id = e.id
+           WHERE e.status = 'active'
+           GROUP BY e.id`,
+        )
+        .all() as {
+        id: number;
+        started_ts: number;
+        enemy: number | null;
+        opener: number | null;
+      }[];
+      for (const r of active) {
+        const openerId = r.opener ?? 0;
+        startCache.set(r.id, {
+          startedTs: r.started_ts ?? 0,
+          stance: latestStringField(ctx, "stance_change", "stance", ctx.logFileId, openerId),
+          invocation: latestStringField(ctx, "invocation_change", "invocation", ctx.logFileId, openerId),
+          enemyId: r.enemy ?? null,
+        });
+      }
     },
 
     apply(ctx: PassContext, pe: PassEvent): void {
+      // Advance the owner's live state in event order (rare types; cheap).
+      if (pe.event.type === "stance_change") {
+        liveStance = pe.event.stance;
+        return;
+      }
+      if (pe.event.type === "invocation_change") {
+        liveInvocation = pe.event.invocation;
+        return;
+      }
       const encounterId = pe.encounterId;
       if (encounterId === null) return;
 
-      const start = startStateFor(ctx, encounterId, pe.event.logFileId);
+      const start = startStateFor(ctx, encounterId);
       const contribution = analyzeContribution(ctx, pe.event, start.enemyId);
       if (contribution !== null) {
         const k = contribution.damageKind;

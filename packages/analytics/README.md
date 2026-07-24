@@ -44,6 +44,45 @@ re-deriving. A full rebuild wipes projector outputs in reverse dependency order
 kept (ids are re-derived deterministically and are referenced by
 `entity_overrides`).
 
+## Rebuild performance (E1.3 / issue #21)
+
+Rebuild is **~O(n)** in the number of events. The real-corpus validation (issue
+#21) found it had been ~O(n^1.8): a 242k-line log took **~563s** to rebuild while
+parse/replay was ~8s. Profiling (per-SQL timing) traced ~81% of the cost to two
+per-event "latest rare-field value at/before this event id" lookups, each an
+`ORDER BY id DESC LIMIT 1` over a sparse event `type` with no usable index for
+that shape — so every call scanned the whole single-file `events` table (O(n) per
+call, O(n²) over the pass):
+
+- `encounter_actor_stats` — the opener's `active_stance` / `active_invocation`
+  (a scan per new encounter), and
+- `domain` — the character level for each `xp_gain` (a scan per xp gain).
+
+Both are now advanced as **in-memory pass state** (like the driver's other
+projector state): the value is maintained as events stream by and read in O(1) at
+the point it's needed. `load()` reconstructs that state from the persisted events
+at the pass watermark — and, for encounters still `active` across a pass boundary
+(whose opener is historical), rebuilds their start-state cache from the opener
+row — so **incremental == rebuild stays byte-identical** and a from-scratch
+rebuild does zero of those scans. No schema/migration change (no new index); the
+fix is entirely in-memory state within the projectors.
+
+Measured on a synthetic combat/heal/xp/zone corpus (with the rare
+stance/invocation/level_up churn), rebuild wall time:
+
+| events | before  | after | scaling (before → after)         |
+| -----: | ------: | ----: | -------------------------------- |
+|    25k |   11.9s |  5.4s |                                  |
+|    50k |   44.2s | 10.8s | ratio ×3.7 → ×2.0                |
+|   100k |  170.4s | 22.2s | ratio ×3.9 → ×2.1                |
+|   200k | ~635s\* | 45.0s | exponent ~1.9 → ~1.0 (linear)    |
+
+\*200k before is extrapolated from the measured ~O(n^1.8); it matches the
+observed 242k ≈ 563s. After the fix, time-per-10k-events is flat (~2.2s) across
+all sizes. `tests/perf-rebuild.test.ts` guards this with a `time(2n)/time(n) < 3`
+regression check (plus a determinism / incremental-equivalence check on the same
+corpus).
+
 ## Interpretations / deviations (flagged for HQ)
 
 - **Lazy encounter close at end-of-pass** (spec §5 "on the next event past the
