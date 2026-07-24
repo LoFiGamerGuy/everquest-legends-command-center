@@ -21,3 +21,6 @@ Thumbs.db
 .DS_Store
 # Fixture guard list (real names) — never commit
 .forbidden-names
+# Throwaway, local-only real-corpus validation scripts + their output (issue #21
+# Deliverable 2). NEVER committed — they touch real logs / real player names.
+packages/e2e/scripts/

@@ -1,0 +1,19 @@
+{
+  "name": "@eqlcc/e2e",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Golden end-to-end test for EQL Command Center (issue #21, E1.1): drives the full M1 chain — synthetic log file → IngestPipeline.replay → @eqlcc/database → rebuildProjections → the analytics read API — over rich synthetic multi-actor fixtures, asserting the end-to-end invariants (full-pipeline determinism, kill-and-resume determinism, idempotent re-replay, incremental == rebuild, pet-fold + named-enemy attribution, read-API sanity). Test-only; publishes nothing.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eqlcc/analytics": "*",
+    "@eqlcc/database": "*",
+    "@eqlcc/event-schema": "*",
+    "@eqlcc/log-parser": "*",
+    "@eqlcc/orchestrator": "*"
+  },
+  "engines": { "node": ">=22" }
+}
