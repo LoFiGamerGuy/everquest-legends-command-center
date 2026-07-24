@@ -113,7 +113,21 @@ export function deriveLiveView(
       : { entityId: current.characterEntityId, name: characterName(db, current.characterEntityId) };
 
   const encounters = listEncounters(db, { sessionId: current.id });
-  const active = encounters.find((e) => e.status === "active") ?? null;
+  // The encounter projector keeps MULTIPLE encounters active at once (keyed by
+  // enemy; closed lazily on timeout), and listEncounters returns them oldest-first.
+  // The tracker's "current" fight is the most-recently-active one, so pick the
+  // active encounter with the greatest last-activity ts (ended_ts is updated per
+  // event even while active), tie-breaking deterministically by startedTs then id.
+  const active = encounters
+    .filter((e) => e.status === "active")
+    .reduce<EncounterHeader | null>((best, e) => {
+      if (best === null) return e;
+      const ea = e.endedTs ?? e.startedTs;
+      const ba = best.endedTs ?? best.startedTs;
+      if (ea !== ba) return ea > ba ? e : best;
+      if (e.startedTs !== best.startedTs) return e.startedTs > best.startedTs ? e : best;
+      return e.id > best.id ? e : best;
+    }, null);
   const closed = encounters
     .filter((e) => e.status === "closed")
     .sort((a, b) => (b.startedTs - a.startedTs) || (b.id - a.id))

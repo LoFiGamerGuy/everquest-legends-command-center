@@ -10,7 +10,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { migrate, openDatabase, type LogFileInput, type SqlDatabase } from "@eqlcc/database";
+import { migrate, openDatabase, type SqlDatabase } from "@eqlcc/database";
 import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";
 
 import * as fs from "node:fs";
@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import * as serviceModule from "../src/index.js";
-import { SessionService } from "../src/index.js";
+import { SessionService, type SessionLogSource } from "../src/index.js";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,18 @@ const OPEN_BOSS: readonly string[] = [
   "[Fri Jul 10 17:20:12 2026] You slash Venril Sathir for 45 points of damage.",
   "[Fri Jul 10 17:20:14 2026] Pettwo slashes Venril Sathir for 20 points of damage.",
   "[Fri Jul 10 17:20:16 2026] Venril Sathir slashes YOU for 25 points of damage.",
+];
+
+/**
+ * TWO encounters active AT ONCE (both within the 15 s timeout, neither killed):
+ * an older-started beetle pull, then a Venril pull whose last activity is later.
+ * The "current" fight is Venril (latest activity), NOT the oldest-started beetle.
+ */
+const TWO_ACTIVE: readonly string[] = [
+  "[Fri Jul 10 17:20:00 2026] You have entered Karnor's Castle.",
+  "[Fri Jul 10 17:20:02 2026] You slash a fire beetle for 8 points of damage.",
+  "[Fri Jul 10 17:20:04 2026] You slash Venril Sathir for 10 points of damage.",
+  "[Fri Jul 10 17:20:06 2026] You slash Venril Sathir for 7 points of damage.",
 ];
 
 /** Two encounters in ONE session (68 s gap > 15 s encounter timeout, < 30 min session gap). */
@@ -62,7 +74,7 @@ function freshDb(): SqlDatabase {
   return db;
 }
 
-function logFile(p: string): LogFileInput {
+function logFile(p: string): SessionLogSource {
   return { path: p, characterName: "Playerone", server: "erudin", dialectId: DIALECT_EQL_BETA_2026_07 };
 }
 
@@ -127,6 +139,19 @@ describe("attribution through the seam", () => {
     expect(view.currentEncounter!.provenance.minConfidence).toBeGreaterThan(0);
   });
 
+  it("picks the most-recently-active encounter when several are active at once", () => {
+    // Both the beetle (older) and Venril (later activity) are active. The tracker's
+    // "current" fight must be Venril — the latest activity — not the oldest-started
+    // beetle that listEncounters returns first. (Regression guard for the
+    // oldest-first `find(active)` bug.)
+    const db = freshDb();
+    const svc = new SessionService({ db, logFile: logFile(writeLog(TWO_ACTIVE)), live: true, tailer: { pollIntervalMs: 20 } });
+    const view = svc.start();
+    svc.stop();
+    expect(view.currentEncounter).not.toBeNull();
+    expect(view.currentEncounter!.header.name).toBe("Venril Sathir");
+  });
+
   it("live leaves the last encounter active; static closes it", () => {
     const p = writeLog(OPEN_BOSS);
     const liveSvc = new SessionService({ db: freshDb(), logFile: logFile(p), live: true, tailer: { pollIntervalMs: 20 } });
@@ -143,7 +168,7 @@ describe("attribution through the seam", () => {
 // ── 3. Live heartbeat ────────────────────────────────────────────────────────
 
 describe("live heartbeat", () => {
-  it("refresh() advances on new bytes, fires onUpdate exactly then, and is idempotent otherwise", async () => {
+  it("refresh() advances on new bytes, moves the fight active→closed, and is idempotent otherwise", async () => {
     const logPath = writeLog(OPEN_BOSS);
     const db = freshDb();
     const svc = new SessionService({ db, logFile: logFile(logPath), live: true, tailer: { pollIntervalMs: 20 } });
@@ -153,30 +178,39 @@ describe("live heartbeat", () => {
 
     const first = svc.start();
     const startSeq = first.watermark.seq;
+    // The replayed boss fight is active; nothing closed yet.
+    expect(first.currentEncounter?.header.name).toBe("Venril Sathir");
+    expect(first.recentEncounters.length).toBe(0);
 
     // Idempotent: no new bytes → equal view, no onUpdate.
     const again = svc.refresh();
     expect(again.watermark.seq).toBe(startSeq);
     expect(updates.length).toBe(0);
 
-    // Grow the file; the tailer ingests asynchronously — poll refresh() until it advances.
+    // Grow the file: kill + XP, then a later zone-enter > 15 s past the fight so the
+    // encounter times out and closes. The tailer ingests asynchronously — poll
+    // refresh() until the watermark advances.
     appendLines(logPath, [
       "[Fri Jul 10 17:20:22 2026] You have slain Venril Sathir!",
       "[Fri Jul 10 17:20:22 2026] You gain experience! (4.000%)",
+      "[Fri Jul 10 17:20:45 2026] You have entered The Northern Desert of Ro.",
     ]);
 
+    let latest = first;
     let advanced = false;
     for (let i = 0; i < 100 && !advanced; i++) {
       await sleep(20);
-      const v = svc.refresh();
-      if (v.watermark.seq > startSeq) advanced = true;
+      latest = svc.refresh();
+      if (latest.watermark.seq > startSeq) advanced = true;
     }
     svc.stop();
 
     expect(advanced).toBe(true);
     expect(updates.length).toBeGreaterThanOrEqual(1);
-    // onUpdate only ever fired with an advanced watermark.
     for (const seq of updates) expect(seq).toBeGreaterThan(startSeq);
+    // The fight moved from currentEncounter (active) to recentEncounters (closed).
+    expect(latest.currentEncounter).toBeNull();
+    expect(latest.recentEncounters.map((e) => e.name)).toContain("Venril Sathir");
   });
 });
 

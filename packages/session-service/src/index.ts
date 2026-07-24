@@ -11,7 +11,11 @@
  */
 
 export { SessionService } from "./service.js";
-export type { SessionServiceOptions } from "./service.js";
+export type {
+  SessionServiceOptions,
+  SessionLogSource,
+  SessionTailerOptions,
+} from "./service.js";
 
 export type { LiveView, EncounterView, ServiceStatus } from "./view.js";
 

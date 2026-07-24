@@ -5,7 +5,9 @@
 
 ## 0. Why this exists
 
-The desktop tracker (M2) must be **thin**: no parser/DB/projection logic in the UI (planning review #18). `@eqlcc/session-service` is the single typed seam between the M1 data spine and the UI. It composes the durable ingest pipeline (tailer → parser → resolver → DB), the projection driver (incremental catch-up), and the analytics read API into a small set of **UI-ready view-models**, and is the control point the Tauri IPC layer calls. The UI imports only this package's view types — never `@eqlcc/database`, `@eqlcc/log-parser`, or projector internals.
+The desktop tracker (M2) must be **thin**: no parser/DB/projection logic in the UI (planning review #18). `@eqlcc/session-service` is the single typed seam between the M1 data spine and the UI. It composes the durable ingest pipeline (tailer → parser → resolver → DB), the projection driver (incremental catch-up), and the analytics read API into a small set of **UI-ready view-models**, and is the control point the Tauri IPC layer calls.
+
+**Where the seam actually is — two sides.** The service runs on the **backend** (the Node side of the Tauri app), which owns the data layer. *Construction* is a backend concern: `SessionServiceOptions` legitimately takes a migrated `db` handle (an `@eqlcc/database` type) — that handle never crosses to the UI. *Consumption* is the UI contract: the UI receives `LiveView` and the other view-model types over IPC and imports **only** those — never `@eqlcc/database`, `@eqlcc/log-parser`, `@eqlcc/orchestrator`, or projector internals. To keep the construction surface tight, the log source and tailer options are exposed as **service-owned structural types** (`SessionLogSource`, `SessionTailerOptions`) rather than re-exported orchestrator/DB types; the only unavoidable data-layer type on the public surface is the backend `db` handle, by design.
 
 ## 1. Architecture: a caller-driven pull seam
 

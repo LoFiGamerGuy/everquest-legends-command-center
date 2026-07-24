@@ -16,10 +16,7 @@
  */
 
 import type { SqlDatabase, LogFileInput } from "@eqlcc/database";
-import {
-  IngestPipeline,
-  type IngestPipelineOptions,
-} from "@eqlcc/orchestrator";
+import { IngestPipeline } from "@eqlcc/orchestrator";
 import {
   finalizeEncounters,
   updateProjections,
@@ -28,21 +25,48 @@ import {
 
 import { deriveLiveView, type LiveView, type ServiceStatus } from "./view.js";
 
+/**
+ * The character log to track — structural primitives only, so the public options
+ * surface carries no `@eqlcc/database`/`@eqlcc/orchestrator` type (the service
+ * builds the internal `LogFileInput` from these).
+ */
+export interface SessionLogSource {
+  /** Absolute path to the character log file. */
+  path: string;
+  /** Dialect id (e.g. the beta-dialect constant from `@eqlcc/event-schema`). */
+  dialectId: string;
+  /** Character (owner) name — enables "You" attribution. */
+  characterName?: string;
+  /** Server namespace. */
+  server?: string;
+}
+
+/** The single live-tailer knob the seam forwards, kept local (no orchestrator type). */
+export interface SessionTailerOptions {
+  /** Poll interval in ms (default 200). */
+  pollIntervalMs?: number;
+}
+
 export interface SessionServiceOptions {
-  /** An already-open, migrated database. */
+  /**
+   * A migrated database handle. This is the BACKEND construction seam: the service
+   * runs on the Node side of the desktop app and owns the data layer. The UI never
+   * constructs the service — it consumes {@link LiveView} over IPC (spec §0/§4), so
+   * this data-layer handle never crosses the UI boundary.
+   */
   db: SqlDatabase;
-  /** The character log to track (path + dialect; optional character/server). */
-  logFile: LogFileInput;
+  /** The character log to track. */
+  logFile: SessionLogSource;
   /**
    * Tail the file for live updates after the initial replay. When false (default),
    * `start()` is a one-shot static load of a complete log and terminal-closes all
    * encounters; when true, tailing begins and the last encounter stays active.
    */
   live?: boolean;
-  /** Pass-through projection tuning (encounter timeouts, experiment options, …). */
+  /** Projection tuning forwarded to the analytics driver (encounter timeouts, …). */
   projection?: ProjectionOptionsInput;
-  /** Pass-through live-tailer options. */
-  tailer?: IngestPipelineOptions["tailer"];
+  /** Live-tailer options. */
+  tailer?: SessionTailerOptions;
   /** Max closed encounters kept in `recentEncounters` (default 10). */
   recentLimit?: number;
   /**
@@ -92,10 +116,11 @@ export class SessionService {
     if (this.started) throw new Error("@eqlcc/session-service: start() called twice");
     this.started = true;
     this.statusValue = "replaying";
+    const logFileInput = this.buildLogFileInput();
     // Pass 1: replay the existing file (its own single-use pipeline).
     const replay = new IngestPipeline({
       db: this.db,
-      logFile: this.options.logFile,
+      logFile: logFileInput,
       ...(this.options.tailer !== undefined ? { tailer: this.options.tailer } : {}),
     });
     replay.replay();
@@ -111,7 +136,7 @@ export class SessionService {
       // forwarded here — tailing continues through those on its own.
       const live = new IngestPipeline({
         db: this.db,
-        logFile: this.options.logFile,
+        logFile: logFileInput,
         ...(this.options.tailer !== undefined ? { tailer: this.options.tailer } : {}),
         onConsumerError: (e) => this.onLiveFailure(e),
         onTruncation: (info) =>
@@ -181,6 +206,17 @@ export class SessionService {
       this.live = undefined;
     }
     if (this.errorValue === null) this.statusValue = "stopped";
+  }
+
+  /** Build the internal `LogFileInput` from the public structural log source. */
+  private buildLogFileInput(): LogFileInput {
+    const src = this.options.logFile;
+    return {
+      path: src.path,
+      dialectId: src.dialectId,
+      ...(src.characterName !== undefined ? { characterName: src.characterName } : {}),
+      ...(src.server !== undefined ? { server: src.server } : {}),
+    };
   }
 
   private computeView(): LiveView {
