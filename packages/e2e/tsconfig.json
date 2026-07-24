@@ -1,0 +1,22 @@
+{
+  // Test-only, `"private": true` package: it publishes nothing and nothing
+  // imports it, so `tsc -b` emitting to `dist/` (required by `composite` project
+  // references, and mirroring every runtime package's tsconfig) is inert — `dist/`
+  // is gitignored and never shipped. Kept on the root solution build so the full
+  // pipeline is typechecked end to end under strict settings.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "noEmit": false
+  },
+  "include": ["tests"],
+  "references": [
+    { "path": "../event-schema" },
+    { "path": "../log-parser" },
+    { "path": "../database" },
+    { "path": "../orchestrator" },
+    { "path": "../analytics" }
+  ]
+}
