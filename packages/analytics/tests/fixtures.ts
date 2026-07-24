@@ -182,3 +182,71 @@ export function groupFightScenario(): Scenario {
   s.add(SECOND, skillUp("1H Slashing", 12)); // skill_events row (verified skill_up), session 2
   return s;
 }
+
+/** Small deterministic PRNG (mulberry32) so synthetic corpora are reproducible. */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A large deterministic synthetic combat log (~`target` events) with a realistic
+ * combat / encounter / heal / xp / zone mix plus the rare stance/invocation/
+ * level_up types that used to drive the superlinear rebuild hotspot (E1.3 /
+ * issue #21). Fabricated (never a real log). Deterministic in `seed`, so the perf
+ * guard and the equivalence checks over it are reproducible.
+ */
+export function syntheticCombatScenario(target: number, seed = 1): Scenario {
+  const s = new Scenario();
+  const rnd = mulberry32(seed);
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+  const allies = ["You", "Grimbek", "Aelwyn", "Petone", "Thornax"] as const;
+  const zones = ["The Northern Desert of Ro", "New Sebilis Expedition", "Befallen", "Guk"] as const;
+  const mobs = ["a dune spiderling", "a greater skeleton", "a sand golem", "an armadillo"] as const;
+  const stances = ["berserker", "defensive", "precision"] as const;
+  const invocations = ["recovery", "onslaught", "focus"] as const;
+  let level = 50;
+
+  s.add(0, zoneEnter(zones[0]));
+  s.add(SECOND, stance(stances[0]));
+  s.add(SECOND, invocation(invocations[0]));
+  while (s.events.length < target) {
+    const r = rnd();
+    if (r < 0.01) {
+      s.add(SECOND, zoneEnter(pick(zones)));
+    } else if (r < 0.03) {
+      s.add(SECOND, stance(pick(stances)));
+    } else if (r < 0.05) {
+      s.add(SECOND, invocation(pick(invocations)));
+    } else {
+      // A combat burst against a single mob → one encounter.
+      const mob = pick(mobs);
+      const bursts = 6 + Math.floor(rnd() * 20);
+      for (let i = 0; i < bursts && s.events.length < target; i++) {
+        const atk = pick(allies);
+        const k = rnd();
+        if (k < 0.5) s.add(400, melee(atk, mob, 10 + Math.floor(rnd() * 200)));
+        else if (k < 0.6) s.add(400, meleeMiss(atk, mob));
+        else if (k < 0.78) s.add(400, spell(atk, mob, 20 + Math.floor(rnd() * 300)));
+        else if (k < 0.86) s.add(400, dot(atk, mob, 15 + Math.floor(rnd() * 100)));
+        else if (k < 0.93) s.add(400, heal(atk, pick(allies), 30 + Math.floor(rnd() * 200), 250));
+        else s.add(400, damageShield(atk, mob, 5 + Math.floor(rnd() * 30)));
+      }
+      if (s.events.length < target) s.add(500, kill(allies[0], mob));
+      if (s.events.length < target && rnd() < 0.9) s.add(300, xpGain(500 + Math.floor(rnd() * 2000)));
+      if (s.events.length < target && rnd() < 0.15) s.add(300, levelUp((level += 1)));
+      if (s.events.length < target && rnd() < 0.3) s.add(300, lootAutoSell("Husk", mob, 10 + Math.floor(rnd() * 50)));
+      if (s.events.length < target && rnd() < 0.2) s.add(300, coinGain(5 + Math.floor(rnd() * 40)));
+      if (s.events.length < target && rnd() < 0.1) s.add(300, faction("New Sebilisian Expedition", 100));
+      if (s.events.length < target && rnd() < 0.08) s.add(300, skillUp("1H Slashing", 12));
+    }
+  }
+  s.events.length = Math.min(s.events.length, target);
+  return s;
+}
