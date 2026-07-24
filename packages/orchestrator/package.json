@@ -1,0 +1,24 @@
+{
+  "name": "@eqlcc/orchestrator",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Headless ingestion orchestrator for EQL Command Center: composes @eqlcc/log-tailer, @eqlcc/log-parser (parser + entity resolver), and @eqlcc/database into a durable, byte-offset-resumable IngestPipeline with replay and live modes. Node/tests/CLI; no Tauri, no DOM.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src", "sql"],
+  "dependencies": {
+    "@eqlcc/database": "*",
+    "@eqlcc/event-schema": "*",
+    "@eqlcc/log-parser": "*",
+    "@eqlcc/log-tailer": "*"
+  },
+  "engines": { "node": ">=22" }
+}
