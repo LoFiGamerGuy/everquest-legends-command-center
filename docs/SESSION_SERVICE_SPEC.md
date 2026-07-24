@@ -62,7 +62,7 @@ Derivation rules (all deterministic, all delegated to the analytics read API —
 
 - **currentSession:** the session with `endedTs === null` (there is at most one — single owner file); else the session with the greatest `startedTs`. `null` if there are no sessions.
 - **character:** `currentSession.characterEntityId` resolved to a name via the `entities` canonical name; `null` when unknown.
-- **currentEncounter:** the `status === "active"` encounter in the current session, if any (at most one under single-file segmentation). Its `actors` come from `getActorStats({ encounterId, foldPets: true })`, ranked by `dps` desc then `entityId` asc for a stable order; enemies are never actors (the read API already excludes them). `null` when no encounter is active.
+- **currentEncounter:** the `status === "active"` encounter in the current session, if any (the encounter projector can keep several active at once, keyed by enemy, so the most-recently-active one — greatest last-activity ts — is chosen, deterministic tiebreak by startedTs then id). Its `actors` come from `getActorStats({ encounterId, foldPets: true })`, ranked by `dps` desc then `entityId` asc for a stable order; enemies are never actors (the read API already excludes them). `null` when no encounter is active.
 - **recentEncounters:** `listEncounters({ sessionId })` filtered to `status === "closed"`, newest-first, capped at `recentLimit` (default 10).
 
 The service re-exports `SessionSummary`, `EncounterHeader`, `ActorStatsRow`, `Provenance` from `@eqlcc/analytics` unchanged, plus `LiveView` / `EncounterView` / `ServiceStatus`. No DB/parser types cross the seam.
