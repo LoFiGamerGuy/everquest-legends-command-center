@@ -118,6 +118,23 @@ M1 (done)
 
 ---
 
+## Resolved decisions (2026-07-23)
+
+- **D1 — Sequencing: RESOLVED.** Golden e2e (E1.1) first, then M2. ✅
+- **D2 — Code signing: DEFERRED.** Not needed for personal use (v1.0 is personal-first). A code-signing cert (~$100–400/yr from a CA) only matters to avoid Windows SmartScreen "unknown publisher" warnings *when distributing to others*. Release workflow is built cert-ready; signing turns on if/when D3 → public distribution happens.
+- **D4 — AI architecture: RESOLVED (directive).** Build a **provider-agnostic AI layer**: a pluggable `AIProvider` abstraction with a registry of adapters (e.g. OpenAI, Anthropic, local/Ollama, others), **dynamic selection**, graceful degradation so it functions with **any single** provider configured, and per-capability routing (the user can prefer/route models per task). Local-only (Ollama) is a first-class option for full privacy; any external call is explicit and previewed per `SECURITY_AND_PRIVACY.md` (nothing leaves the machine silently). Analysis is always grounded in the normalized local DB. Ships in v1.0 if it doesn't add release risk, else v1.1.
+- **D5 — OS scope: RESOLVED.** Windows-only for v1.0; macOS deferred. ✅
+- **D6 — Repo visibility & license: OPEN (new, important).** The goal in D3 is *personal use now, and possibly sharing later only as a locked binary with no source access.* That conflicts with the **current state: a public GitHub repo under MIT — the full source is already open.** For personal use this changes nothing. But before any sharing, choose: **(a)** stay open-source (public + MIT) — strongest fit with the passive-parser precedent that underpins the compliance argument, source is auditable, but anyone can read/fork it; or **(b)** go **private repo + proprietary license + binary-only distribution** — matches "share the app, not the source," at the cost of the open/auditable posture. Switchable at any time (repo → private; add a proprietary `LICENSE`); cleaner to decide before inviting anyone. **No action needed while it's personal-only.**
+
+## Testing & verification strategy (pre-launch vs post-launch)
+
+The parser must never fabricate a format, so recognizers are only built from **real** samples. Coverage before the game's 2026-07-28 launch:
+
+- **Primary: the owner's real beta corpus** (~434k lines, on the connected machine) — drives the golden e2e (E1.1) and stays private/local (never committed; only anonymized excerpts become fixtures).
+- **Supplemental: public EQ-family sample logs** may be sourced to harden the parser against edge cases — kept **local-only and anonymized**, never committed, and treated as EQ-*family* (P99/EQ1 era), **not** EQL-exact; useful for robustness, not for defining the EQL dialect.
+- **Visual QA via computer-use (within compliance):** the agent can drive the owner's desktop *observationally* — screenshot and verify the **desktop app's** UI as M2/M3 are built, and (post-launch) **correlate the game screen with parsed log lines / screenshots** (exactly the "correlate candidate records with screenshots, logs, and observed gameplay" the vision calls for). Hard line: **observation only — no automated keyboard/mouse input to the game, no gameplay automation** (compliance). Launching/observing the app is fine; playing or automating the game is not.
+- **Post-launch:** the owner plays the launch client and provides logs + in-game confirmations for the launch dialect (EL.2) and the UNVERIFIED families (E1.4) — the parts that genuinely require a human at the keyboard.
+
 ## Decisions & inputs needed from you (LoFiGamerGuy)
 
 These are the only things blocking full-speed autonomous execution. None are needed *today* except D1.
