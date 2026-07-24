@@ -46,23 +46,40 @@ export function logFileInput(logPath: string): LogFileInput {
   };
 }
 
-/** A stored-event row projected to the fields that must be byte-identical across runs. */
+/**
+ * A stored-event row projected to the fields that must be byte-identical across
+ * runs. This intentionally dumps the WHOLE persisted row — including the
+ * denormalized `source_entity_id`/`target_entity_id`/`value` columns and the
+ * projection-written `session_id`/`encounter_id` FKs — so a regression in any of
+ * them fails the determinism / resume comparisons, not just the raw parse fields.
+ * The only columns omitted are the intentionally run-local identifiers `id`
+ * (rowid) and `log_file_id`; canonical `seq` order carries the identity instead.
+ * NOTE: `source_entity_id`/`target_entity_id`/`session_id`/`encounter_id` are
+ * written by the projectors, so compare `allEvents` AFTER projections have run.
+ */
 export interface StoredEvent {
   seq: number;
   byteOffset: number;
   raw: string;
   ts: number;
   type: string;
+  sourceEntityId: number | null;
+  targetEntityId: number | null;
+  value: number | null;
+  sessionId: number | null;
+  encounterId: number | null;
   dialectId: string;
   ruleId: string | null;
   payload: string;
 }
 
-/** All events for a log file in canonical (seq) order, as comparable rows. */
+/** The full events row for a log file in canonical (seq) order, as comparable rows. */
 export function allEvents(db: SqlDatabase, logFileId: number): StoredEvent[] {
   return db
     .prepare(
       `SELECT seq, byte_offset AS byteOffset, raw, ts, type,
+              source_entity_id AS sourceEntityId, target_entity_id AS targetEntityId,
+              value, session_id AS sessionId, encounter_id AS encounterId,
               dialect_id AS dialectId, rule_id AS ruleId, payload
        FROM events WHERE log_file_id = ? ORDER BY seq`,
     )

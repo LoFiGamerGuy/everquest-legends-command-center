@@ -47,6 +47,7 @@ import {
   cutOffset,
   fullSize,
   fullText,
+  offsetOfLine,
 } from "./golden-log.js";
 import {
   allEvents,
@@ -155,40 +156,62 @@ describe("golden end-to-end (issue #21)", () => {
 
   // ── 3. Kill-and-resume determinism (the headline durability guarantee) ───────
 
-  it("kill-and-resume mid-file reproduces the uninterrupted run byte-for-byte", () => {
-    // Baseline: one uninterrupted run.
+  it("kill-and-resume at multiple committed watermarks reproduces the uninterrupted run", () => {
+    // Baseline: one uninterrupted run (projected).
     const baseline = runFullChain(logPath);
     const baselineEvents = allEvents(baseline.db, baseline.logFileId);
 
-    // Interrupted run against its OWN db, sharing a private on-disk path.
-    const prefix = writeTempLog(fullText().slice(0, cutOffset()));
+    // Interrupted run against its OWN db, sharing a private on-disk path. We
+    // "crash" at TWO distinct committed watermarks (after 12 lines, then after
+    // 20), not just once at a clean EOF. Because the pipeline commits each batch
+    // (events + watermark) atomically, a real kill can only ever leave the DB at
+    // a committed batch boundary — never a torn/partial row past the watermark —
+    // so resuming from an on-disk watermark at several such boundaries is the
+    // faithful crash-recovery model. We assert the committed row count equals the
+    // watermark at each stage to prove nothing past it leaked in.
+    const CUT1 = CUT_AFTER_LINE; // 12
+    const CUT2 = 20;
+    const prefix = writeTempLog(fullText().slice(0, offsetOfLine(CUT1 + 1)));
     const db = freshDb();
 
-    // Pass 1: only the prefix exists on disk — "crash" after CUT_AFTER_LINE lines.
-    const before = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
-    const p1 = before.replay();
-    expect(p1.linesProcessed).toBe(CUT_AFTER_LINE);
-    expect(before.watermark()).toEqual({ byteOffset: cutOffset(), seq: CUT_AFTER_LINE });
+    // Pass 1: only the first CUT1 lines exist on disk — "crash" after CUT1.
+    const p1pipe = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
+    const p1 = p1pipe.replay();
+    expect(p1.linesProcessed).toBe(CUT1);
+    expect(p1pipe.watermark()).toEqual({ byteOffset: offsetOfLine(CUT1 + 1), seq: CUT1 });
+    expect(eventCount(db, p1pipe.logFileId)).toBe(CUT1); // committed == watermark, no torn rows
 
-    // "Restart": the rest of the file is now on disk.
+    // Restart 1: grow the file to CUT2 lines, resume, then "crash" again mid-stream.
+    fs.writeFileSync(
+      prefix.logPath,
+      Buffer.from(fullText().slice(0, offsetOfLine(CUT2 + 1)), "latin1"),
+    );
+    const p2pipe = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
+    expect(p2pipe.watermark()).toEqual({ byteOffset: offsetOfLine(CUT1 + 1), seq: CUT1 });
+    const p2 = p2pipe.replay();
+    expect(p2.linesProcessed).toBe(CUT2 - CUT1);
+    expect(p2pipe.watermark()).toEqual({ byteOffset: offsetOfLine(CUT2 + 1), seq: CUT2 });
+    expect(eventCount(db, p2pipe.logFileId)).toBe(CUT2);
+
+    // Restart 2: the rest of the file is now on disk; resume to EOF.
     fs.writeFileSync(prefix.logPath, Buffer.from(fullText(), "latin1"));
-
-    // Pass 2: a FRESH pipeline on the SAME db resumes from the persisted watermark.
     const after = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
-    expect(after.watermark()).toEqual({ byteOffset: cutOffset(), seq: CUT_AFTER_LINE });
-    const p2 = after.replay();
-    expect(p2.linesProcessed).toBe(LOG_LINES.length - CUT_AFTER_LINE);
+    expect(after.watermark()).toEqual({ byteOffset: offsetOfLine(CUT2 + 1), seq: CUT2 });
+    const p3 = after.replay();
+    expect(p3.linesProcessed).toBe(LOG_LINES.length - CUT2);
 
     // No loss, no duplication: exactly one event per line, seq contiguous 1..N.
     expect(eventCount(db, after.logFileId)).toBe(LOG_LINES.length);
-    const resumed: StoredEvent[] = allEvents(db, after.logFileId);
-    expect(resumed.map((e) => e.seq)).toEqual(LOG_LINES.map((_, i) => i + 1));
-    // Byte-identical event stream + final watermark to the uninterrupted run.
-    expect(resumed).toEqual(baselineEvents);
+    const resumedSeqs = allEvents(db, after.logFileId).map((e) => e.seq);
+    expect(resumedSeqs).toEqual(LOG_LINES.map((_, i) => i + 1));
     expect(after.watermark()).toEqual({ byteOffset: fullSize(), seq: LOG_LINES.length });
 
-    // Projections rebuilt on the resumed DB match the uninterrupted DB exactly.
+    // Full-row event stream (incl. resolved entity FKs + projected session/encounter)
+    // and every projection table identical to the uninterrupted run — compared
+    // AFTER projections run on both sides so the downstream-written columns count.
     project(db);
+    const resumed: StoredEvent[] = allEvents(db, after.logFileId);
+    expect(resumed).toEqual(baselineEvents);
     expect(snapshotJson(db)).toBe(snapshotJson(baseline.db));
 
     prefix.cleanup();
@@ -223,18 +246,22 @@ describe("golden end-to-end (issue #21)", () => {
     const ref = runFullChain(logPath);
 
     // Incremental: replay the file in two stages, catching projections up after
-    // each stage in small batches (batchSize 3), then terminal-close once.
+    // each stage in small batches, then terminal-close once. Batch sizes are
+    // chosen to force UNEVEN splits with a trailing remainder in BOTH stages
+    // (stage 1 = 12 events / batch 5 → 5,5,2; stage 2 = 15 events / batch 4 →
+    // 4,4,4,3), so a remainder-batch boundary landing mid-encounter is exercised,
+    // not just clean multiples of the batch size.
     const prefix = writeTempLog(fullText().slice(0, cutOffset()));
     const db = freshDb();
 
     const stage1 = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
     stage1.replay();
-    updateProjections(db, { batchSize: 3 });
+    updateProjections(db, { batchSize: 5 });
 
     fs.writeFileSync(prefix.logPath, Buffer.from(fullText(), "latin1"));
     const stage2 = new IngestPipeline({ db, logFile: logFileInput(prefix.logPath) });
     stage2.replay();
-    updateProjections(db, { batchSize: 3 });
+    updateProjections(db, { batchSize: 4 });
     finalizeEncounters(db);
 
     expect(snapshotJson(db)).toBe(snapshotJson(ref.db));
