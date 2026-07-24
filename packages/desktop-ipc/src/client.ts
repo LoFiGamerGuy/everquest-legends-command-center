@@ -31,14 +31,18 @@ export class SessionIpcClient {
   /** Ingest + (for live) begin tailing; returns the first view (does not fire onUpdate). */
   async start(): Promise<LiveView> {
     const view = (await this.request("start")) as LiveView;
-    this.lastSeq = view.watermark.seq;
+    this.lastSeq = Math.max(this.lastSeq, view.watermark.seq);
     return view;
   }
 
   /** Catch projections up + recompute; fires onUpdate iff the watermark advanced. */
   async refresh(): Promise<LiveView> {
     const view = (await this.request("refresh")) as LiveView;
-    if (view.watermark.seq !== this.lastSeq) {
+    // Watermark is MONOTONIC: fire only on a strict advance, and never regress
+    // lastSeq. With a real async transport two refreshes can be in flight and
+    // their responses arrive out of order; a stale (older-seq) response must not
+    // re-fire or move lastSeq backward.
+    if (view.watermark.seq > this.lastSeq) {
       this.lastSeq = view.watermark.seq;
       for (const cb of this.subscribers) cb(view);
     }
@@ -70,21 +74,49 @@ export class SessionIpcClient {
     const id = this.nextId++;
     return new Promise<IpcResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.transport.send(JSON.stringify({ id, method }));
+      try {
+        this.transport.send(JSON.stringify({ id, method }));
+      } catch (e) {
+        // A real wire can throw synchronously (closed pipe): don't leak the
+        // pending entry — drop it and reject the caller with the send error.
+        this.pending.delete(id);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
     });
   }
 
   private onResponse(raw: string): void {
-    let res: IpcResponse;
-    try {
-      res = JSON.parse(raw) as IpcResponse;
-    } catch {
-      return; // ignore unparseable frames rather than throwing into the transport
-    }
+    const res = parseResponse(raw);
+    if (res === null) return; // ignore unparseable / structurally-invalid frames
     const p = this.pending.get(res.id);
     if (p === undefined) return; // unknown / duplicate id
     this.pending.delete(res.id);
     if (res.ok) p.resolve(res.result);
     else p.reject(new Error(res.error));
   }
+}
+
+/**
+ * Validate an inbound frame before it touches `pending`. A bare `"null"` parses
+ * as `null` (so `res.id` would throw out of the transport callback), and a frame
+ * with a matching id but no `ok`/`error` could resolve `undefined` or reject with
+ * `Error(undefined)`; both are rejected here instead (spec §4 robustness).
+ */
+function parseResponse(raw: string): IpcResponse | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const rec = parsed as Record<string, unknown>;
+  if (typeof rec["id"] !== "number" || !Number.isSafeInteger(rec["id"])) return null;
+  if (rec["ok"] === true && "result" in rec) {
+    return { id: rec["id"], ok: true, result: rec["result"] as IpcResult };
+  }
+  if (rec["ok"] === false && typeof rec["error"] === "string") {
+    return { id: rec["id"], ok: false, error: rec["error"] };
+  }
+  return null;
 }

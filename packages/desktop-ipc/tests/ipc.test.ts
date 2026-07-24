@@ -12,14 +12,48 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { migrate, openDatabase, type SqlDatabase } from "@eqlcc/database";
 import { DIALECT_EQL_BETA_2026_07 } from "@eqlcc/event-schema";
-import { SessionService } from "@eqlcc/session-service";
+import { SessionService, type LiveView } from "@eqlcc/session-service";
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import * as ipc from "../src/index.js";
-import { SessionIpcClient, SessionIpcHost, createLinkedTransports } from "../src/index.js";
+import {
+  SessionIpcClient,
+  SessionIpcHost,
+  createLinkedTransports,
+  type IpcTransport,
+} from "../src/index.js";
+
+/** A transport the test fully controls: capture sent frames, deliver responses by hand. */
+class ManualTransport implements IpcTransport {
+  readonly sent: string[] = [];
+  private listener: ((m: string) => void) | null = null;
+  send(message: string): void {
+    this.sent.push(message);
+  }
+  onMessage(listener: (message: string) => void): void {
+    this.listener = listener;
+  }
+  deliver(message: string): void {
+    this.listener?.(message);
+  }
+}
+
+/** A minimal LiveView carrying just the watermark the client's onUpdate reads. */
+function viewAtSeq(seq: number): LiveView {
+  return {
+    status: "live",
+    lastError: null,
+    watermark: { byteOffset: seq * 10, seq },
+    updatedTs: seq,
+    character: null,
+    currentSession: null,
+    currentEncounter: null,
+    recentEncounters: [],
+  };
+}
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -148,27 +182,81 @@ describe("onUpdate", () => {
     expect(seqs.length).toBe(0);
 
     appendLines(logPath, ["[Fri Jul 10 17:20:22 2026] You have slain Venril Sathir!"]);
-    let advanced = false;
-    for (let i = 0; i < 100 && !advanced; i++) {
+    let advancedSeq = -1;
+    for (let i = 0; i < 100 && advancedSeq < 0; i++) {
       await sleep(20);
       const v = await client.refresh();
-      if (v.watermark.seq > first.watermark.seq) advanced = true;
+      if (v.watermark.seq > first.watermark.seq) advancedSeq = v.watermark.seq;
     }
-    expect(advanced).toBe(true);
-    expect(seqs.length).toBeGreaterThanOrEqual(1);
-    for (const s of seqs) expect(s).toBeGreaterThan(first.watermark.seq);
+    // Exactly ONE fire for the one advance (monotonic; no duplicate/regression),
+    // at the advanced watermark.
+    expect(advancedSeq).toBeGreaterThan(first.watermark.seq);
+    expect(seqs).toEqual([advancedSeq]);
 
-    // After unsubscribe, no further fires even if another refresh advances.
+    // After unsubscribe: a further real advance must NOT fire the callback. Prove
+    // the second append actually advances (a refresh reaches a higher seq) while
+    // the callback count stays put.
     unsub();
-    const before = seqs.length;
     appendLines(logPath, ["[Fri Jul 10 17:20:23 2026] You gain experience! (4.000%)"]);
-    for (let i = 0; i < 100; i++) {
+    let advancedAgain = false;
+    for (let i = 0; i < 100 && !advancedAgain; i++) {
       await sleep(20);
       const v = await client.refresh();
-      if (v.watermark.seq > first.watermark.seq + 1) break;
+      if (v.watermark.seq > advancedSeq) advancedAgain = true;
     }
     await client.stop();
-    expect(seqs.length).toBe(before);
+    expect(advancedAgain).toBe(true); // the append really did advance
+    expect(seqs).toEqual([advancedSeq]); // ...but no fire after unsubscribe
+  });
+});
+
+// ── 4b. onUpdate is monotonic under out-of-order responses (controlled wire) ──
+
+describe("onUpdate monotonicity", () => {
+  it("fires once per strict advance and never regresses on a stale response", async () => {
+    const t = new ManualTransport();
+    const client = new SessionIpcClient(t);
+    const seqs: number[] = [];
+    client.onUpdate((v) => seqs.push(v.watermark.seq));
+
+    // start → seq 5 (no fire on start).
+    const startP = client.start();
+    t.deliver(JSON.stringify({ id: 1, ok: true, result: viewAtSeq(5) }));
+    await startP;
+    expect(seqs).toEqual([]);
+
+    // Two refreshes in flight (ids 2, 3). Deliver the NEWER seq (8) first, then a
+    // STALE seq (6) out of order. Only the advance to 8 fires; 6 neither fires nor
+    // regresses lastSeq.
+    const r2 = client.refresh();
+    const r3 = client.refresh();
+    t.deliver(JSON.stringify({ id: 3, ok: true, result: viewAtSeq(8) }));
+    t.deliver(JSON.stringify({ id: 2, ok: true, result: viewAtSeq(6) }));
+    await Promise.all([r2, r3]);
+    expect(seqs).toEqual([8]);
+
+    // A later refresh at an equal seq does not re-fire; a further advance does.
+    const r4 = client.refresh();
+    t.deliver(JSON.stringify({ id: 4, ok: true, result: viewAtSeq(8) }));
+    await r4;
+    const r5 = client.refresh();
+    t.deliver(JSON.stringify({ id: 5, ok: true, result: viewAtSeq(9) }));
+    await r5;
+    expect(seqs).toEqual([8, 9]);
+  });
+
+  it("ignores a bare `null` frame and other structurally-invalid responses", async () => {
+    const t = new ManualTransport();
+    const client = new SessionIpcClient(t);
+    const p = client.status();
+    // These must all be ignored without throwing out of the transport callback.
+    expect(() => t.deliver("null")).not.toThrow();
+    expect(() => t.deliver("123")).not.toThrow();
+    expect(() => t.deliver(JSON.stringify({ id: 1 }))).not.toThrow(); // no ok/error
+    expect(() => t.deliver(JSON.stringify({ ok: true, result: null }))).not.toThrow(); // no id
+    // The real response still resolves the pending call.
+    t.deliver(JSON.stringify({ id: 1, ok: true, result: "live" }));
+    expect(await p).toBe("live");
   });
 });
 
@@ -235,5 +323,23 @@ describe("seam discipline", () => {
         .replace(/\/\/.*$/gm, "");
       expect(code).not.toMatch(/Date\.now|Math\.random|new Date\(/);
     }
+  });
+
+  it("src imports no workspace package other than @eqlcc/session-service", () => {
+    // A source-level thin-seam guard stronger than the runtime-export check: the
+    // IPC layer must face ONLY the view-model seam. If a DB/parser/orchestrator
+    // (or any other @eqlcc) type is ever pulled onto the public surface, its
+    // import shows up here first.
+    const srcDir = path.join(import.meta.dirname, "..", "src");
+    const forbidden: string[] = [];
+    for (const f of fs.readdirSync(srcDir)) {
+      if (!f.endsWith(".ts")) continue;
+      const text = fs.readFileSync(path.join(srcDir, f), "utf8");
+      for (const m of text.matchAll(/from\s+"(@eqlcc\/[^"]+)"/g)) {
+        const pkg = m[1]!;
+        if (pkg !== "@eqlcc/session-service") forbidden.push(`${f}: ${pkg}`);
+      }
+    }
+    expect(forbidden).toEqual([]);
   });
 });

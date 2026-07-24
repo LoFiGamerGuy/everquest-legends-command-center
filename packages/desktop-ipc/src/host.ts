@@ -52,7 +52,13 @@ export class SessionIpcHost {
   }
 
   private reply(response: { id: number; ok: true; result: IpcResult } | { id: number; ok: false; error: string }): void {
-    this.transport.send(JSON.stringify(response));
+    try {
+      this.transport.send(JSON.stringify(response));
+    } catch {
+      // A send failure on a dead wire must not escape the inbound callback — the
+      // host "never crashes" (spec §3). Disconnect handling belongs to the
+      // concrete transport (spec §6); there is no error hook to route to yet.
+    }
   }
 }
 
